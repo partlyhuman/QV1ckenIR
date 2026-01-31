@@ -1,4 +1,6 @@
-This is an easy-to-use, self-contained device that retrieves photos from the 2000-era [Casio WQV-1 camera watch](https://www.casio.com/us/watches/50th/Heritage/2000s/).
+This is an easy-to-use, self-contained device that retrieves photos from the extremely cool 2000-era [Casio WQV-1 camera watch](https://www.casio.com/us/watches/50th/Heritage/2000s/).
+
+<img src="https://www.casio.com/content/casio/locales/us/en/products/watches/50th/Heritage/2000s/_jcr_content/root/responsivegrid/container_284324613__634683990/underlaying_containe/item/backgroundAssetPc.casiocoreimg.jpeg/1703480312170/2000-wqv-1.jpeg"/>
 
 This project would not be possible without the reverse engineering work of [Marcus Gröber](https://www.mgroeber.de/).
 
