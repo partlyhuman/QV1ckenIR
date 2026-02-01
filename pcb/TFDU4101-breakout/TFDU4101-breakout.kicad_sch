@@ -11,7 +11,7 @@
 		(company "Partlyhuman")
 	)
 	(lib_symbols
-		(symbol "Connector:Conn_01x08_Pin"
+		(symbol "Connector:Conn_01x07_Pin"
 			(pin_names
 				(offset 1.016)
 				(hide yes)
@@ -27,8 +27,8 @@
 					)
 				)
 			)
-			(property "Value" "Conn_01x08_Pin"
-				(at 0 -12.7 0)
+			(property "Value" "Conn_01x07_Pin"
+				(at 0 -10.16 0)
 				(effects
 					(font
 						(size 1.27 1.27)
@@ -53,7 +53,7 @@
 					(hide yes)
 				)
 			)
-			(property "Description" "Generic connector, single row, 01x08, script generated"
+			(property "Description" "Generic connector, single row, 01x07, script generated"
 				(at 0 0 0)
 				(effects
 					(font
@@ -88,7 +88,7 @@
 					(hide yes)
 				)
 			)
-			(symbol "Conn_01x08_Pin_1_1"
+			(symbol "Conn_01x07_Pin_1_1"
 				(rectangle
 					(start 0.8636 7.747)
 					(end 0 7.493)
@@ -158,17 +158,6 @@
 				(rectangle
 					(start 0.8636 -7.493)
 					(end 0 -7.747)
-					(stroke
-						(width 0.1524)
-						(type default)
-					)
-					(fill
-						(type outline)
-					)
-				)
-				(rectangle
-					(start 0.8636 -10.033)
-					(end 0 -10.287)
 					(stroke
 						(width 0.1524)
 						(type default)
@@ -252,18 +241,6 @@
 				(polyline
 					(pts
 						(xy 1.27 -7.62) (xy 0.8636 -7.62)
-					)
-					(stroke
-						(width 0.1524)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 1.27 -10.16) (xy 0.8636 -10.16)
 					)
 					(stroke
 						(width 0.1524)
@@ -392,24 +369,6 @@
 						)
 					)
 					(number "7"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin passive line
-					(at 5.08 -10.16 180)
-					(length 3.81)
-					(name "Pin_8"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "8"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -757,6 +716,16 @@
 	)
 	(wire
 		(pts
+			(xy 151.13 53.34) (xy 151.13 55.88)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "bac0be53-7689-45ef-98b2-7aab511821c8")
+	)
+	(wire
+		(pts
 			(xy 151.13 55.88) (xy 125.73 55.88)
 		)
 		(stroke
@@ -765,18 +734,8 @@
 		)
 		(uuid "c6f95d0f-15a8-4f53-b59b-bc2de6dc1c90")
 	)
-	(wire
-		(pts
-			(xy 125.73 53.34) (xy 151.13 53.34)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "d750bcc9-9428-4b01-bc28-5ec20af5b2c6")
-	)
 	(symbol
-		(lib_id "Connector:Conn_01x08_Pin")
+		(lib_id "Connector:Conn_01x07_Pin")
 		(at 156.21 45.72 0)
 		(mirror y)
 		(unit 1)
@@ -793,7 +752,7 @@
 				)
 			)
 		)
-		(property "Value" "Conn_01x08_Pin"
+		(property "Value" "Conn_01x07_Pin"
 			(at 155.575 35.56 0)
 			(effects
 				(font
@@ -819,7 +778,7 @@
 				(hide yes)
 			)
 		)
-		(property "Description" "Generic connector, single row, 01x08, script generated"
+		(property "Description" "Generic connector, single row, 01x07, script generated"
 			(at 156.21 45.72 0)
 			(effects
 				(font
@@ -833,9 +792,6 @@
 		)
 		(pin "1"
 			(uuid "f37ae684-623e-438c-9ff9-f85c9d310c1d")
-		)
-		(pin "8"
-			(uuid "402db607-e8ae-44ba-ba55-45b729e32d14")
 		)
 		(pin "4"
 			(uuid "65186ba5-9664-4c2c-9721-80fba046d0b7")

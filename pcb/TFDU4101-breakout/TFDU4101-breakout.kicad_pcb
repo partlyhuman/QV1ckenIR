@@ -911,13 +911,13 @@
 		(embedded_fonts no)
 		(model "${KIPRJMOD}/../Libraries/TFDU4101.step"
 			(offset
-				(xyz 0 0.25 2.5)
+				(xyz -2.5 0.25 1.5)
 			)
 			(scale
 				(xyz 1 1 1)
 			)
 			(rotate
-				(xyz -90 -0 -90)
+				(xyz -0 -0 -90)
 			)
 		)
 	)
