@@ -1,4 +1,5 @@
 #ifndef ENABLE_DISPLAY_128x64
+#ifndef ENABLE_DISPLAY_72x40
 #include "display.h"
 
 namespace Display {
@@ -16,4 +17,5 @@ void showMountedScreen() {
 }
 
 }  // namespace Display
+#endif
 #endif

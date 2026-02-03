@@ -14,7 +14,9 @@
 #define LED_OFF HIGH
 
 // Builtin button
+#ifndef PIN_BUTTON
 #define PIN_BUTTON 0
+#endif
 
 // Vishay TFDU4101
 #ifndef PIN_IRDA_SD

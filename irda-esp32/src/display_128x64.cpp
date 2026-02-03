@@ -1,10 +1,8 @@
 #ifdef ENABLE_DISPLAY_128x64
-
-#include "display.h"
-
 #include "Adafruit_SSD1306.h"
 #include "_1980v23P04_16.h"
 #include "config.h"
+#include "display.h"
 #include "log.h"
 
 #define SCREEN_WIDTH 128
