@@ -937,7 +937,7 @@
 		(property "Reference" "U1"
 			(at 0 0 0)
 			(unlocked yes)
-			(layer "F.SilkS")
+			(layer "F.Fab")
 			(hide yes)
 			(uuid "98f07220-6ce6-4f1e-b0b4-8476bef48e29")
 			(effects
@@ -947,10 +947,10 @@
 				)
 			)
 		)
-		(property "Value" "TFDU4101-TR3"
+		(property "Value" "TFDU4101"
 			(at 2 0 90)
 			(unlocked yes)
-			(layer "F.Fab")
+			(layer "F.SilkS")
 			(uuid "fe2d930a-91e8-4a08-9abb-433a3781be1f")
 			(effects
 				(font
@@ -1510,18 +1510,6 @@
 			(layer "F.Fab")
 			(uuid "2591ca27-5c2e-4781-9c56-7ba86f9486d9")
 		)
-		(fp_text user "${REFERENCE}"
-			(at 0 0 0)
-			(unlocked yes)
-			(layer "F.SilkS")
-			(uuid "0cfae318-8584-47b2-a2df-4da26421ce5c")
-			(effects
-				(font
-					(size 0.7 0.7)
-					(thickness 0.1)
-				)
-			)
-		)
 		(fp_text user "*"
 			(at -0.7874 4.9784 0)
 			(unlocked yes)
@@ -1550,7 +1538,7 @@
 			(at 0.635 2.8956 0)
 			(unlocked yes)
 			(layer "F.Fab")
-			(uuid "e6c2a337-1d64-4463-9885-7bde60cd747c")
+			(uuid "98aeac91-638d-4d9b-a63e-a2c2979cd5fa")
 			(effects
 				(font
 					(size 1 1)
