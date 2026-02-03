@@ -1,4 +1,4 @@
-#ifdef ENABLE_SSD1306
+#ifdef ENABLE_DISPLAY_128x64
 
 #include "display.h"
 

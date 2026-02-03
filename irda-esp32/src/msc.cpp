@@ -13,6 +13,9 @@
 #include "log.h"
 
 #define READONLY
+#define MSC_VENDOR_ID "Partlyhuman"
+#define MSC_PRODUCT_ID "WQV-1 Interface"
+#define MSC_PRODUCT_REVISION "1.0"
 
 namespace MassStorage {
 
@@ -82,9 +85,9 @@ void init() {
     sect_cnt = total_size / sect_size;
 
     USB.onEvent(usbEventCallback);
-    MSC.vendorID("ESP32");
-    MSC.productID("USB_MSC");
-    MSC.productRevision("1.0");
+    MSC.vendorID(MSC_VENDOR_ID);
+    MSC.productID(MSC_PRODUCT_ID);
+    MSC.productRevision(MSC_PRODUCT_REVISION);
     MSC.onRead(onRead);
     MSC.onWrite(onWrite);
     MSC.onStartStop(onStartStop);

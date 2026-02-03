@@ -67,8 +67,8 @@ void setup() {
     attachInterrupt(PIN_BUTTON, onManualModeToggleButton, FALLING);
 
     // TFDU4101 Shutdown pin, powered by bus power, safe to tie to ground
-    // pinMode(PIN_SD, OUTPUT);
-    // digitalWrite(PIN_SD, LOW);
+    // pinMode(PIN_IRDA_SD, OUTPUT);
+    // digitalWrite(PIN_IRDA_SD, LOW);
     // delay(1);
 
     IRDA_setup(IRDA);

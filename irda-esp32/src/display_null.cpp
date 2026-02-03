@@ -1,4 +1,4 @@
-#ifndef ENABLE_SSD1306
+#ifndef ENABLE_DISPLAY_128x64
 #include "display.h"
 
 namespace Display {
