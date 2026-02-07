@@ -38,7 +38,7 @@ void onManualModeToggleButton();
 
 void setup() {
     Serial.begin(115200);
-    delay(100);
+    delay(1500);
 
     // Doing this means it doesn't start until serial connected?
     // while (!Serial);
@@ -66,10 +66,12 @@ void setup() {
     pinMode(PIN_BUTTON, INPUT_PULLUP);
     attachInterrupt(PIN_BUTTON, onManualModeToggleButton, FALLING);
 
+#ifdef PIN_IRDA_SD
     // TFDU4101 Shutdown pin, powered by bus power, safe to tie to ground
-    // pinMode(PIN_IRDA_SD, OUTPUT);
-    // digitalWrite(PIN_IRDA_SD, LOW);
-    // delay(1);
+    pinMode(PIN_IRDA_SD, OUTPUT);
+    digitalWrite(PIN_IRDA_SD, LOW);
+    delay(1);
+#endif
 
     IRDA_setup(IRDA);
     while (!IRDA);
