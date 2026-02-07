@@ -79,7 +79,7 @@ void init() {
         return;
     }
 
-    flash_handle = FFat._wl_handle;  // FFat.h is hacked to made this public
+    // flash_handle = FFat._wl_handle;  // FFat.h is hacked to made this public
     sect_size = wl_sector_size(flash_handle);
     total_size = wl_size(flash_handle);
     sect_cnt = total_size / sect_size;
