@@ -8,27 +8,37 @@ namespace Display {
 Adafruit_NeoPixel pixel(1, PIN_WS2812, NEO_GRB);
 
 bool init() {
-    return pixel.begin();
+    bool ok = pixel.begin();
+    if (ok) {
+        pixel.setBrightness(32);
+        pixel.clear();
+        pixel.show();
+    }
+    return ok;
+}
+
+void showIdleScreen() {
     pixel.clear();
     pixel.show();
 }
 
-void showIdleScreen() {
-}
-
 void showConnectingScreen(int offset) {
-    pixel.setPixelColor(0, pixel.Color(0, 128, 0));
+    pixel.clear();
+    pixel.show();
+    delay(100);
+    pixel.setPixelColor(0, pixel.Color(0, 255, 0));
     pixel.show();
 }
 
 void showProgressScreen(size_t bytes, size_t totalBytes, size_t bytesPerImage, const char* label) {
-    float pct = (float)bytes / totalBytes;
-    pixel.setPixelColor(0, pixel.ColorHSV(110.0f * pct));
+    pixel.clear();
+    pixel.setPixelColor(0, pixel.ColorHSV(20000 * bytes / totalBytes, 255, 255));
     pixel.show();
 }
 
 void showMountedScreen() {
-    pixel.setPixelColor(0, pixel.Color(0, 0, 1));
+    pixel.clear();
+    pixel.setPixelColor(0, pixel.Color(0, 0, 255));
     pixel.show();
 }
 
