@@ -125,25 +125,41 @@ void showProgressScreen(size_t bytes, size_t totalBytes, size_t bytesPerImage, c
     static uint8_t frame = 0;
 
     display.clearDisplay();
-    display.fillRect(0, 0, 128, 9, 1);
+
+    // status_downloading
+    // display.setCursor(1, 7);
+    // display.print("DOWNLOADING");
+
+    // bar_border
     display.drawRect(1, 53, 125, 9, 1);
-    display.fillRect(3, 55, 1, 5, 1);
+
+    // bar_fill
+    // display.fillRect(3, 55, 121, 5, 1);
+
+    // percent
+    display.setTextColor(1);
+    display.setCursor(1, 50);
+    display.printf("%0.0f%%", 100.0f * bytes / totalBytes);
+
+    // photo_count
+    display.setFont();
+    display.setCursor(38, 25);
+    display.printf("Photo %d/%d", (int)ceil((float)bytes / bytesPerImage), totalBytes / bytesPerImage);
 
     // Progress bar, from w=0 to w=121
     display.fillRect(3, 55, bytes * 122 / totalBytes, 5, 1);
 
-    display.setTextColor(1);
+    // status_bar
+    display.fillRect(0, 0, 128, 9, 1);
+
+    // status_wqv
+    display.setTextColor(0);
     display.setTextWrap(false);
-    display.setCursor(38, 25);
-    display.printf("Photo %d/%d", 1 + bytes / bytesPerImage, totalBytes / bytesPerImage);
-
     display.setFont(&_1980v23P04_16);
-    display.setCursor(1, 50);
-    display.printf("%0.0f%%", 100.0f * bytes / totalBytes);
-
     display.setCursor(93, 7);
     display.print("WQV-1");
 
+    // status_downloading
     display.setCursor(1, 7);
     display.print(step);
 
@@ -155,23 +171,30 @@ void showProgressScreen(size_t bytes, size_t totalBytes, size_t bytesPerImage, c
 void showMountedScreen() {
     display.clearDisplay();
 
+    // file_save
     display.drawBitmap(56, 19, image_file_save_bits, 16, 16, 1);
 
+    // Layer 5
+    display.setFont();
     display.setTextColor(1);
     display.setTextWrap(false);
     display.setCursor(14, 43);
     display.print("USB drive mounted");
 
+    // Layer 5 copy
     display.setCursor(17, 54);
     display.print("Eject when done!");
 
+    // Layer 6
     display.fillRect(0, 0, 128, 9, 1);
 
+    // Layer 9
     display.setTextColor(0);
     display.setFont(&_1980v23P04_16);
     display.setCursor(93, 7);
     display.print("WQV-1");
 
+    // Layer 2 copy
     display.setCursor(1, 7);
     display.print("MOUNTED");
 
