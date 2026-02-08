@@ -1,0 +1,6 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "REB_IRDA")(type "KiCad")(uri "${KIPRJMOD}/../Libraries/TFDU4101.pretty")(options "")(descr ""))
+  (lib (name "REB_OLED")(type "KiCad")(uri "${KIPRJMOD}/../Libraries/oled_128x64.pretty")(options "")(descr ""))
+  (lib (name "REB_ESP32")(type "KiCad")(uri "${KIPRJMOD}/../Libraries/MCU_Espressif_ESP32_DevBoard.pretty")(options "")(descr ""))
+)

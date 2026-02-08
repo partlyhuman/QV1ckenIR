@@ -1,0 +1,6 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "REB_IRDA")(type "KiCad")(uri "${KIPRJMOD}/../Libraries/TFDU4101.kicad_sym")(options "")(descr ""))
+  (lib (name "REB_OLED")(type "KiCad")(uri "${KIPRJMOD}/../Libraries/oled_128x64.kicad_sym")(options "")(descr ""))
+  (lib (name "REB_ESP32")(type "KiCad")(uri "${KIPRJMOD}/../Libraries/MCU_Espressif_ESP32_DevBoard.kicad_sym")(options "")(descr ""))
+)
