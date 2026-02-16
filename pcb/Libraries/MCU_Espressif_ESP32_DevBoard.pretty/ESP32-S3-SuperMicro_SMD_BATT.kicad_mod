@@ -115,7 +115,7 @@
 		)
 	)
 	(fp_text user "B-"
-		(at 2.25 -5 90)
+		(at 2.25 -6.5 90)
 		(unlocked yes)
 		(layer "B.SilkS")
 		(uuid "b6b1dcb7-1c7f-480b-9374-2d39c4819749")
@@ -128,7 +128,7 @@
 		)
 	)
 	(fp_text user "B+"
-		(at 2.25 -13 90)
+		(at 2.25 -11.25 90)
 		(unlocked yes)
 		(layer "B.SilkS")
 		(uuid "cbd934c1-78fa-486e-b05a-3cb66bf4bb52")
@@ -285,7 +285,7 @@
 		(uuid "20939501-1437-4ffb-8f3e-fc059463d0e4")
 	)
 	(pad "19" thru_hole oval
-		(at 0 -5 90)
+		(at 0 -6.75 90)
 		(size 4 2)
 		(drill oval 2 1.5)
 		(layers "*.Cu" "*.Mask")
@@ -293,7 +293,7 @@
 		(uuid "c65f91f0-0b0c-4877-96ed-b57d928e7f64")
 	)
 	(pad "20" thru_hole oval
-		(at 0 -13 90)
+		(at 0 -11.25 90)
 		(size 4 2)
 		(drill oval 2 1.5)
 		(layers "*.Cu" "*.Mask")
