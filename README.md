@@ -1,7 +1,8 @@
+# Snappy Name TBD Casio WQV-1 USB Sync Dongle
+
+<img src="img/dongle.jpg" width="400"/>
+
 This is an easy-to-use, self-contained device that retrieves photos from the extremely cool 2000-era [Casio WQV-1 camera watch](https://www.casio.com/us/watches/50th/Heritage/2000s/).
-
-<img src="img/printed.jpg"/>
-
 This project would not be possible without the reverse engineering work of [Marcus Gröber](https://www.mgroeber.de/).
 
 ## Coming soon!
