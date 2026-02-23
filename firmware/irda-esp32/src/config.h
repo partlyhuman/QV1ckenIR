@@ -19,9 +19,6 @@
 #endif
 
 // Vishay TFDU4101
-#ifndef PIN_IRDA_SD
-#define PIN_IRDA_SD 14
-#endif
 #ifndef PIN_IRDA_TX
 #define PIN_IRDA_TX 10
 #endif

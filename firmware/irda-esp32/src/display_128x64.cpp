@@ -49,6 +49,7 @@ static const unsigned char image_file_save_bits[]{0x7f, 0xfc, 0x90, 0xaa, 0x90, 
                                                   0x97, 0xe9, 0x90, 0x09, 0xd7, 0xeb, 0x90, 0x09, 0x7f, 0xfe};
 
 bool init() {
+    LOGV(TAG, "Using these pins for I2C: SDA=%d SCL=%d", PIN_I2C_SDA, PIN_I2C_SCL);
     if (!Wire.setPins(PIN_I2C_SDA, PIN_I2C_SCL) || !Wire.begin()) {
         LOGE(TAG, "Can't use these pins for I2C: SDA=%d SCL=%d", PIN_I2C_SDA, PIN_I2C_SCL);
         return false;
@@ -59,8 +60,13 @@ bool init() {
         return false;
     }
 
+#ifdef SCREEN_ROTATION
+    display.setRotation(SCREEN_ROTATION);
+#endif
     display.clearDisplay();
     display.display();
+
+    LOGV(TAG, "Display init");
 
     return true;
 }
