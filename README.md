@@ -8,6 +8,13 @@ This project would not be possible without the reverse engineering work of [Marc
 
 Pre-assembled devices ars available in limited quantities on my [Ko-Fi shop](https://ko-fi.com/s/76fb4d3271)!
 
+## Compatibility
+
+* WQV-1 ✅
+* WQV-2 Untested but should work! Get in touch if you have one to test with!
+* WQV-3 🔜
+* WQV-10 🔜
+
 ## Usage
 
 1. Plug in the device to your computer via USB
