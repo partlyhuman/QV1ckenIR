@@ -25,6 +25,8 @@ namespace MassStorage {
 
 static const char* TAG = "MassStorage";
 
+bool media_present;
+
 USBMSC MSC;
 
 wl_handle_t flash_handle;
@@ -69,11 +71,12 @@ bool onStartStop(uint8_t power_condition, bool start, bool load_eject) {
     // Without this, drive just keeps coming back
     if (!start && load_eject) {
         MSC.mediaPresent(false);
-        delay(250);
+        media_present = false;
+        // delay(250);
 
         // Maybe, maybe not
-        shutdown();
-        ESP.restart();
+        // shutdown();
+        // ESP.restart();
     }
     return true;
 }
@@ -103,14 +106,21 @@ void init() {
 }
 
 void begin() {
-    digitalWrite(PIN_LED, LED_OFF);
+    // digitalWrite(PIN_LED, LED_OFF);
     // Serial.end();
     MSC.mediaPresent(true);
+    media_present = true;
 }
 
 void end() {
     MSC.mediaPresent(false);
+    media_present = false;
     // Serial.begin(115200);
+}
+
+void toggle() {
+    media_present = !media_present;
+    MSC.mediaPresent(media_present);
 }
 
 }  // namespace MassStorage

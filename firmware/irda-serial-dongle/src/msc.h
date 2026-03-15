@@ -2,8 +2,11 @@
 
 namespace MassStorage {
 
+extern bool media_present;
+
 void init();
 void begin();
 void end();
+void toggle();
 
 }  // namespace MassStorage
