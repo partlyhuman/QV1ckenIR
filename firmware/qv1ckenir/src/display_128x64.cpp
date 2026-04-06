@@ -1,6 +1,7 @@
 #ifdef ENABLE_DISPLAY_128x64
 #include <Adafruit_SSD1306.h>
 
+#include "Nokia_Cellphone_FC_8.h"
 #include "_1980v23P04_16.h"
 #include "config.h"
 #include "display.h"
@@ -10,6 +11,8 @@
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
 #define SCREEN_ADDRESS 0x3C
+
+static int screen;
 
 namespace Display {
 
@@ -65,155 +68,187 @@ bool init() {
 #endif
     display.clearDisplay();
     display.display();
+    dim(false);
+    screen = -1;
 
     LOGV(TAG, "Display init");
 
     return true;
 }
 
+void dim(bool d) {
+    if (d) {
+        display.ssd1306_command(SSD1306_SETCONTRAST);
+        display.ssd1306_command(0x01);
+    } else {
+        display.ssd1306_command(SSD1306_SETCONTRAST);
+        display.ssd1306_command(0xA0);
+    }
+}
+
+void scrollStatus() {
+    display.ssd1306_command(SSD1306_RIGHT_HORIZONTAL_SCROLL);
+    display.ssd1306_command(0x00);  // dummy
+    display.ssd1306_command(0);     // start page (48px)
+    display.ssd1306_command(0x00);  // speed (frame interval)
+    display.ssd1306_command(1);     // end page (64px)
+    display.ssd1306_command(0x00);  // dummy
+    display.ssd1306_command(0xFF);  // dummy
+    display.ssd1306_command(SSD1306_ACTIVATE_SCROLL);
+}
+
 void showIdleScreen() {
+    if (screen == 0) return;
+    screen = 0;
+
     static const unsigned char image_Layer_12_bits[] = {
         0xff, 0xff, 0xff, 0x80, 0x00, 0x01, 0x8e, 0x00, 0x71, 0x91, 0x00, 0x89, 0xa0, 0x81, 0x05, 0xa0, 0x81,
         0x05, 0xa0, 0x81, 0x05, 0x91, 0x00, 0x89, 0x8e, 0x00, 0x71, 0x80, 0x00, 0x01, 0xff, 0xff, 0xff};
 
+    display.ssd1306_command(SSD1306_DEACTIVATE_SCROLL);
+
     display.clearDisplay();
 
-    display.fillRect(0, 0, 128, 9, 1);
-
+    // Layer 2
     display.setTextColor(1);
     display.setTextWrap(false);
-    display.setCursor(26, 26);
+    display.setFont(&Nokia_Cellphone_FC_8);
+    display.setCursor(32, 22);
     display.print("IR > COM > PC");
 
-    display.setCursor(38, 15);
+    // Layer 3
+    display.setCursor(40, 11);
     display.print("On watch:");
 
+    // Layer 10
+    display.fillRect(0, 55, 128, 9, 1);
+
+    // Layer 9
     display.setTextColor(0);
     display.setFont(&_1980v23P04_16);
-    display.setCursor(93, 7);
-    display.print("WQV-1");
+    // display.setCursor(93, 62);
+    // display.print("WQV-1");
 
-    display.setCursor(1, 7);
+    // Layer 2 copy
+    display.setCursor(1, 62);
     display.print("SEARCHING");
 
+    // Layer 3 copy
     display.setTextColor(1);
-    display.setFont();
-    display.setCursor(31, 50);
+    display.setFont(&Nokia_Cellphone_FC_8);
+    display.setCursor(32, 43);
     display.print("Aim at");
 
-    display.drawBitmap(71, 48, image_Layer_12_bits, 24, 11, 1);
+    // Layer 12
+    display.drawBitmap(71, 35, image_Layer_12_bits, 24, 11, 1);
 
     display.display();
+    scrollStatus();
 }
 
 void showConnectingScreen(int offset) {
+    screen = 1;
+
+    display.ssd1306_command(SSD1306_DEACTIVATE_SCROLL);
+
     display.clearDisplay();
-
-    display.fillRect(0, 0, 128, 9, 1);
-
-    display.setTextColor(0);
-    display.setTextWrap(false);
-    display.setFont(&_1980v23P04_16);
-    display.setCursor(93, 7);
-    display.print("WQV-1");
-
-    display.setCursor(1, 7);
-    display.print("CONNECTING");
 
     display.drawBitmap(48 + offset, 34, image_arrow_right_bits, 7, 5, 1);
 
     display.drawBitmap(69 - offset, 34, image_arrow_left_bits, 7, 5, 1);
 
+    // Layer 10
+    display.fillRect(0, 55, 128, 9, 1);
+
+    display.setTextColor(0);
+    display.setFont(&_1980v23P04_16);
+    display.setCursor(93, 62);
+    display.print("WQV-1");
+
+    display.setCursor(1, 62);
+    display.print("CONNECTING");
+
     display.display();
 }
 
 void showProgressScreen(size_t bytes, size_t totalBytes, size_t bytesPerImage, const char* step) {
+    screen = 2;
     static uint8_t frame = 0;
 
     display.clearDisplay();
 
-    // status_downloading
-    // display.setCursor(1, 7);
-    // display.print("DOWNLOADING");
-
-    // bar_border
-    display.drawRect(1, 53, 125, 9, 1);
-
-    // bar_fill
-    // display.fillRect(3, 55, 121, 5, 1);
-
-    // percent
-    display.setTextColor(1);
-    display.setCursor(1, 50);
-    display.printf("%0.0f%%", 100.0f * bytes / totalBytes);
-
-    // photo_count
-    display.setFont();
-    display.setCursor(38, 25);
-    display.printf("Photo %d/%d", (int)ceil((float)bytes / bytesPerImage), totalBytes / bytesPerImage);
-
-    // Progress bar, from w=0 to w=121
-    display.fillRect(3, 55, bytes * 122 / totalBytes, 5, 1);
-
     // status_bar
-    display.fillRect(0, 0, 128, 9, 1);
+    display.fillRect(0, 55, 128, 9, 1);
 
     // status_wqv
     display.setTextColor(0);
     display.setTextWrap(false);
     display.setFont(&_1980v23P04_16);
-    display.setCursor(93, 7);
+    display.setCursor(93, 62);
     display.print("WQV-1");
 
     // status_downloading
-    display.setCursor(1, 7);
+    display.setCursor(1, 62);
     display.print(step);
 
-    display.drawBitmap(22, 21, frames[(frame++ / 10) % 5], 14, 14, 1);
+    // bar_border
+    display.drawRect(1, 38, 125, 9, 1);
+
+    // bar_fill
+    display.fillRect(3, 40, bytes * 122 / totalBytes, 5, 1);
+
+    // percent
+    display.setTextColor(1);
+    display.setCursor(1, 35);
+    display.printf("%0.0f%%", 100.0f * bytes / totalBytes);
+
+    // photo_count
+    display.setFont(&Nokia_Cellphone_FC_8);
+    display.setCursor(46, 14);
+    display.printf("Photo %d/%d", (int)ceil((float)bytes / bytesPerImage), totalBytes / bytesPerImage);
+
+    // frame0
+    display.drawBitmap(23, 4, frames[(frame++ / 10) % 5], 14, 14, 1);
 
     display.display();
 }
 
 void showMountedScreen() {
-    static unsigned long lastDisplay = 0;
-    static bool flash = true;
-    if (lastDisplay == 0 || millis() - lastDisplay > 750) {
-        display.clearDisplay();
+    if (screen == 3) return;
+    screen = 3;
 
-        // file_save
-        if (flash) {
-            display.drawBitmap(56, 19, image_file_save_bits, 16, 16, 1);
-        }
+    display.clearDisplay();
 
-        // Layer 5
-        display.setFont();
-        display.setTextColor(1);
-        display.setTextWrap(false);
-        display.setCursor(14, 43);
-        display.print("USB drive mounted");
+    // file_save
+    display.drawBitmap(56, 3, image_file_save_bits, 16, 16, 1);
 
-        // Layer 5 copy
-        display.setCursor(17, 54);
-        display.print("Eject when done!");
+    // Layer 5
+    display.setTextColor(1);
+    display.setTextWrap(false);
+    display.setFont(&Nokia_Cellphone_FC_8);
+    display.setCursor(18, 31);
+    display.print("USB drive mounted");
 
-        // Layer 6
-        display.fillRect(0, 0, 128, 9, 1);
+    // Layer 5 copy
+    display.setCursor(22, 42);
+    display.print("Eject when done!");
 
-        // Layer 9
-        display.setTextColor(0);
-        display.setFont(&_1980v23P04_16);
-        display.setCursor(93, 7);
-        display.print("WQV-1");
+    // Layer 6
+    display.fillRect(0, 55, 128, 9, 1);
 
-        // Layer 2 copy
-        display.setCursor(1, 7);
-        display.print("MOUNTED");
+    // Layer 9
+    display.setTextColor(0);
+    display.setFont(&_1980v23P04_16);
+    // display.setCursor(93, 62);
+    // display.print("WQV-1");
 
-        display.display();
+    // Layer 2 copy
+    display.setCursor(1, 62);
+    display.print("MOUNTED");
 
-        flash = !flash;
-        lastDisplay = millis();
-    }
+    display.display();
+
+    scrollStatus();
 }
 
 // Currently unused

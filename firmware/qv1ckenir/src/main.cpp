@@ -148,7 +148,16 @@ bool openSession() {
     // Frame::writeFrame(0xff, 0xb3);
     // if (!readFrame()) return false;
     // <	FFh	A3h	<hh> <mm> <ss> <ff>
-    if (!expect(0xff, 0xa3, 4)) return false;
+    if (!expect(0xff, 0xa3, 4)) {
+        static uint idleCount = 0;
+        const uint dimAfterIdle = 10;
+        if (++idleCount >= dimAfterIdle) {
+            Display::dim(true);
+        }
+        return false;
+    }
+
+    Display::dim(false);
 
     // We don't use the returned time. Maybe a future implementation could... tell you if your watch's time needs to be
     // adjusted? Except this device doesn't know the correct time either.
@@ -339,38 +348,38 @@ void onManualModeToggleButton() {
 
 void loop() {
     if (mscMode) {
-        Display::showMountedScreen();
-    } else {
-        // Needed to clear after errors
-        Display::showIdleScreen();
-        if (openSession()) {
-            if (downloadImages()) {
-                // Don't require a clean disconnect to continue
-                closeSession();
-
-                File dump;
-#ifdef ENABLE_PSRAM
-                if (usePsram)
-                    dump = PSRamFS.open(DUMP_PATH, FILE_READ);
-                else
-#endif
-                    dump = FFat.open(DUMP_PATH, FILE_READ);
-                Image::exportImagesFromDump(dump);
-                dump.close();
-                delay(250);  // Give the 100% screen some time to register
-
-                Display::showMountedScreen();
-                Serial.println("\n\nAttaching mass storage device, go look for your images!");
-                Serial.println("Don't forget to eject when done!");
-
-                Serial.flush();
-                mscMode = true;
-                MassStorage::begin();
-                return;
-            }
-        }
-
-        // LOGE(TAG, "Failure or no watch present, restarting from handshake");
-        delay(1000);
+        return;
     }
+
+    // Needed to clear after errors
+    Display::showIdleScreen();
+    if (openSession()) {
+        if (downloadImages()) {
+            // Don't require a clean disconnect to continue
+            closeSession();
+
+            File dump;
+#ifdef ENABLE_PSRAM
+            if (usePsram)
+                dump = PSRamFS.open(DUMP_PATH, FILE_READ);
+            else
+#endif
+                dump = FFat.open(DUMP_PATH, FILE_READ);
+            Image::exportImagesFromDump(dump);
+            dump.close();
+            delay(250);  // Give the 100% screen some time to register
+
+            Display::showMountedScreen();
+            Serial.println("\n\nAttaching mass storage device, go look for your images!");
+            Serial.println("Don't forget to eject when done!");
+
+            Serial.flush();
+            mscMode = true;
+            MassStorage::begin();
+            return;
+        }
+    }
+
+    // LOGE(TAG, "Failure or no watch present, restarting from handshake");
+    delay(1000);
 }

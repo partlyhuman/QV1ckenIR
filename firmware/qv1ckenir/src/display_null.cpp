@@ -7,6 +7,8 @@ namespace Display {
 bool init() {
     return false;
 }
+void dim(bool d) {
+}
 void showIdleScreen() {
 }
 void showConnectingScreen(int offset) {

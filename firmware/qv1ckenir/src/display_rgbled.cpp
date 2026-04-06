@@ -17,6 +17,9 @@ bool init() {
     return ok;
 }
 
+void dim(bool d) {
+}
+
 void showIdleScreen() {
     pixel.clear();
     pixel.show();
