@@ -150,7 +150,6 @@ void showConnectingScreen(int offset) {
     screen = 1;
 
     display.ssd1306_command(SSD1306_DEACTIVATE_SCROLL);
-
     display.clearDisplay();
 
     display.drawBitmap(48 + offset, 34, image_arrow_right_bits, 7, 5, 1);
@@ -175,6 +174,7 @@ void showProgressScreen(size_t bytes, size_t totalBytes, size_t bytesPerImage, c
     screen = 2;
     static uint8_t frame = 0;
 
+    display.ssd1306_command(SSD1306_DEACTIVATE_SCROLL);
     display.clearDisplay();
 
     // status_bar
@@ -217,6 +217,7 @@ void showMountedScreen() {
     if (screen == 3) return;
     screen = 3;
 
+    display.ssd1306_command(SSD1306_DEACTIVATE_SCROLL);
     display.clearDisplay();
 
     // file_save

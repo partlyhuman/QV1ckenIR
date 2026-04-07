@@ -33,9 +33,12 @@ static uint8_t ctrl;
 // Whether we're streaming the transferred data into PSRAM or FAT
 static bool usePsram;
 // Two operation modes, false if IR comms mode, true if USB disk mode
-volatile static bool mscMode = false;
+static bool mscMode = false;
+volatile static bool pendingManualModeToggle;
 
-void onManualModeToggleButton();
+void IRAM_ATTR onManualModeToggleButton() {
+    pendingManualModeToggle = true;
+}
 
 void setup() {
     Serial.begin(115200);
@@ -336,17 +339,23 @@ bool closeSession() {
     return true;
 }
 
-void onManualModeToggleButton() {
-    mscMode = !mscMode;
-    Serial.printf("Changed mode -> %s\n", mscMode ? "MSC" : "IRDA");
-    if (mscMode) {
-        MassStorage::begin();
-    } else {
-        MassStorage::end();
-    }
-}
-
 void loop() {
+    if (pendingManualModeToggle) {
+        pendingManualModeToggle = false;
+        mscMode = !mscMode;
+        if (mscMode) {
+            Display::dim(false);
+            Display::showMountedScreen();
+            delay(100);
+            MassStorage::begin();
+        } else {
+            MassStorage::end();
+            delay(100);
+            ESP.restart();
+        }
+        return;
+    }
+
     if (mscMode) {
         return;
     }
