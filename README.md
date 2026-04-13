@@ -11,7 +11,7 @@ Pre-assembled devices ars available in limited quantities on my [Ko-Fi shop](htt
 ## Compatibility
 
 * WQV-1 ✅
-* WQV-2 Untested but should work! Get in touch if you have one to test with!
+* WQV-2 ✅
 * WQV-3 🔜
 * WQV-10 🔜
 
