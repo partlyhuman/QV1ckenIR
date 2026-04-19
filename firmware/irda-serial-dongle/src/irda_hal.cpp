@@ -15,8 +15,8 @@
 HardwareSerial IRDA = HardwareSerial(IRDA_UART_NUM);
 static uart_dev_t *IRDA_UART = UART_LL_GET_HW(IRDA_UART_NUM);
 
-void IRDA_setup(HardwareSerial &serial) {
-    serial.begin(BAUDRATE, SERIAL_8N1, PIN_IRDA_RX, PIN_IRDA_TX);
+void IRDA_setup(HardwareSerial &serial, int baud) {
+    serial.begin(baud, SERIAL_8N1, PIN_IRDA_RX, PIN_IRDA_TX);
     serial.setMode(UART_MODE_IRDA);
 }
 

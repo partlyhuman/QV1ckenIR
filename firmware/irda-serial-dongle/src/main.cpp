@@ -18,15 +18,17 @@ static uint8_t SERIAL_BUFFER[SERIAL_BUFFER_SIZE]{};
 static File logFile;
 static int logFileCount = 0;
 
-static uint8_t const MARK_RX[]{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                               0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00};
-static uint8_t const MARK_TX[]{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                               0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x10, 0x00};
+static uint8_t const GAP[16]{};
 static uint32_t lastLogTime = 0;
 static bool lastLogWasTx = true;
 const uint32_t NEW_LOG_AFTER_IDLE_MS = 1000;
 
 void onManualModeToggleButton() {
+    static uint32_t lastButtonPress = 0;
+    if (lastButtonPress > 0 && millis() - lastButtonPress < 1000) {
+        return;
+    }
+    lastButtonPress = millis();
     if (!MassStorage::media_present && logFile) {
         logFile.flush();
         logFile.close();
@@ -38,13 +40,13 @@ void setup() {
     pinMode(PIN_LED, OUTPUT);
     digitalWrite(PIN_LED, LED_OFF);
 
-    USBSerial.begin(BAUDRATE);
+    USBSerial.begin(9600);
     // Attempt to avoid the DTS/RTS reboot
     USBSerial.enableReboot(false);
     USBSerial.setDebugOutput(false);
 
-    // Doing this means it doesn't start until serial connected?
-    // while (!USBSerial);
+    IRDA_setup(IRDA, 9600);
+    while (!IRDA);
 
 #ifdef PIN_IRDA_SD
     // TFDU4101 Shutdown pin, powered by bus power, safe to tie to ground
@@ -53,48 +55,42 @@ void setup() {
     delay(1);
 #endif
 
-    IRDA_setup(IRDA);
-    while (!IRDA);
-
     prefs.begin("prefs");
     logFileCount = prefs.getUInt("logFileCount");
 
+    FFat.format();
     MassStorage::init();
-    MassStorage::begin();
+    // MassStorage::begin();
 
     attachInterrupt(PIN_BUTTON, onManualModeToggleButton, FALLING);
 }
 
 void cycleLog() {
-    uint32_t now = millis();
-    if (logFile && now > lastLogTime + NEW_LOG_AFTER_IDLE_MS) {
+    if (logFile && millis() > lastLogTime + NEW_LOG_AFTER_IDLE_MS) {
+        logFile.flush();
         logFile.close();
     }
 }
 
 void log(bool isTx, uint8_t *buf, int len) {
-    if (MassStorage::media_present) return;
-
+    static bool lastIsTx;
     uint32_t now = millis();
     if (!logFile) {
         char filename[64] = "";
         sprintf(filename, "/%05d.bin", logFileCount++);
         prefs.putUInt("logFileCount", logFileCount);
         logFile = FFat.open(filename, "w", true);
-        lastLogWasTx = true;
+        lastIsTx = true;
     }
 
-    if (lastLogWasTx != isTx) {
-        logFile.write(isTx ? MARK_TX : MARK_RX, sizeof(MARK_TX));
-        lastLogWasTx = isTx;
-    }
-
+    if (isTx != lastIsTx) logFile.write(GAP, sizeof(GAP));
     logFile.write(buf, len);
     lastLogTime = now;
+    lastIsTx = isTx;
 }
 
 void loop() {
-    cycleLog();
+    if (!MassStorage::media_present) cycleLog();
 
     // TX
     size_t avail = USBSerial.available();
@@ -106,7 +102,8 @@ void loop() {
         IRDA.write(SERIAL_BUFFER, avail);
         IRDA.flush();
         IRDA_tx(false);
-        log(true, SERIAL_BUFFER, avail);
+
+        if (!MassStorage::media_present) log(true, SERIAL_BUFFER, avail);
     }
 
     // RX
@@ -114,10 +111,15 @@ void loop() {
     if (avail > 0) {
         // Flash on RX
         digitalWrite(LED_BUILTIN, LED_ON);
+        // if (IRDA.peek() == 0xC0) {
+        // avail = IRDA.readBytesUntil(0xC1, SERIAL_BUFFER, SERIAL_BUFFER_SIZE);
+        // } else {
         avail = IRDA.readBytes(SERIAL_BUFFER, min(avail, SERIAL_BUFFER_SIZE));
+        // }
+
         USBSerial.write(SERIAL_BUFFER, avail);
         USBSerial.flush();
-        log(false, SERIAL_BUFFER, avail);
+        if (!MassStorage::media_present) log(false, SERIAL_BUFFER, avail);
     }
 
     digitalWrite(LED_BUILTIN, LED_OFF);

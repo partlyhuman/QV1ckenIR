@@ -10,7 +10,7 @@
 extern HardwareSerial IRDA;
 
 // Must call once
-void IRDA_setup(HardwareSerial &serial = IRDA);
+void IRDA_setup(HardwareSerial &serial, int baud);
 
 // Must set true before transmitting and false after transmitting
 void IRDA_tx(bool);

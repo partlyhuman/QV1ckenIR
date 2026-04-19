@@ -1,7 +1,5 @@
 #pragma once
 
-#define BAUDRATE 9600
-
 // Which UART to use IRDA on
 #ifndef IRDA_UART_NUM
 #define IRDA_UART_NUM 1
