@@ -1,0 +1,35 @@
+  
+License [30/12/2022]
+
+"1980" is a font created by Francisco Beltrán for Typevore & Plastivore Type Works. 
+
+The font may be used with attribution in commercial and non-commercial projects free of charge.
+
+When attributing the font, please clearly include the name "Void" or "Francisco Beltrán"
+
+The font may not be redistributed or remixed in whole or in part. 
+
+It may not be resold elsewhere as an asset or part of an asset pack.
+Direct interested parties to: https://arcade.itch.io/1980
+
+EXAMPLES OF ALLOWED USE:
+
+* Distributing the font alongside a game as an asset to display within the game (as long as credit is clearly provided on the asset file name).
+* Using chars from the font as main characters in your game and providing credit for the font.
+* Hosting the font on a website to enable the website's text to render in this font with visible credit provided.
+* Using the font as part of a digital artwork or a printed artwork (as long as credit is provided in any descriptions of the artwork).
+
+EXAMPLES OF PROHIBITED USE:
+
+* Distributing the font as part of a larger pack of fonts, with or without credit.
+* Cutting out or rearranging large sections of the font to create a new font and distributing it as an asset.
+* Selling the font to others.
+* Hosting the font on a website with the sole intent of distributing the font.
+* Using the font in a game without providing credit.
+
+SPECIFICALLY DISALLOWED USE:
+
+This product may not be used to create blockchain content, including all forms of crypto and NFTs.
+
+https://arcade.itch.io/
+
