@@ -116,6 +116,9 @@ bool closeSession() {
 }
 
 bool readFrame(unsigned long timeout = 1000) {
+    len = 0;
+    dataLen = 0;
+
     IRDA.setTimeout(timeout);
     len = IRDA.readBytesUntil(Frame::FRAME_EOF, readBuffer, BUFFER_SIZE);
     if (len == 0) {
@@ -158,7 +161,7 @@ bool openSession() {
         send[send.size() - 2] = count;
         Frame::writeFrame(0xff, 0x3f, send, 11);
         dataLen = 0;
-        if (readFrame(200) && expect(0xfe, 0xbf, 1)) break;
+        if (readFrame(25) && expect(0xfe, 0xbf, 1)) break;
     }
 
     if (!dataLen) return false;
@@ -179,6 +182,23 @@ bool openSession() {
     } else {
         LOGI(TAG, "Unrecognized watch");
         return false;
+    }
+
+    uint8_t sipEndpointWatch = rand() & 0x7E;
+    addr = sipEndpointWatch - 1;
+
+    array<uint8_t, 27> START_SESSION{0x19, 0x36, 0x66, 0xBE, sipEndpointWatch,
+                                     0x01, 0x01, 0x02, 0x82, 0x01,
+                                     0x01, 0x83, 0x01, 0x3F, 0x84,
+                                     0x01, 0x0F, 0x85, 0x01, 0x80,
+                                     0x86, 0x02, 0x80, 0x03, 0x08,
+                                     0x01, 0x07};
+
+    send = concat(SVC, START_SESSION);
+    Frame::writeFrame(0xff, 0x93, span(send).subspan(1), 5);
+    if (readFrame() && expect(sipEndpointWatch, 0x73, 1)) {
+        LOGI(TAG, "Watch accepted SIP address %02x", sipEndpointWatch);
+        return true;
     }
 
     return true;

@@ -71,19 +71,8 @@ void writeFrame(uint8_t addr, uint8_t control, span<uint8_t> data, size_t repeat
 
 bool parseFrame(uint8_t *buf, size_t len, size_t &outLen, uint8_t &addr, uint8_t &control) {
     uint16_t crc = 0xffff;
-    uint16_t expectedcrc;
-    outLen = 0;
-
-#ifdef DEBUG_READ
-#if LOG_LEVEL >= 3
-    Serial.printf("< ");
-    for (size_t i = 0; i < len; i++) {
-        Serial.printf("%02x ", buf[i]);
-    }
-    Serial.println();
-#endif
-#endif
     size_t i = 0;
+    outLen = 0;
 
     // Allow leading 0xff padding
     for (; buf[i] == 0xff && i < len; i++);
@@ -128,7 +117,7 @@ bool parseFrame(uint8_t *buf, size_t len, size_t &outLen, uint8_t &addr, uint8_t
         return false;
     }
 
-    expectedcrc = buf[outLen - 2] | (buf[outLen - 1] << 8);
+    uint16_t expectedcrc = buf[outLen - 2] | (buf[outLen - 1] << 8);
     // When done the buffer will contain only the data frame, strip off the crc
     outLen -= 2;
 
