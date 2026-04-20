@@ -1,5 +1,13 @@
 #pragma once
 
+#ifndef WQV
+#error "Need to define WQV variant (12 or 310)"
+#endif
+
+#ifndef BAUDRATE
+#define BAUDRATE 9600
+#endif
+
 // Which UART to use IRDA on
 #ifndef IRDA_UART_NUM
 #define IRDA_UART_NUM 1
