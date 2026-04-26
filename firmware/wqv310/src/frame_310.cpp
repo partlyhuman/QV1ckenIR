@@ -27,7 +27,7 @@ static inline void writeEscaped(uint8_t b) {
     }
 }
 
-void writeFrame(uint8_t addr, uint8_t control, span<uint8_t> data, size_t repeatBOF) {
+void writeFrame(uint8_t addr, uint8_t control, span<const uint8_t> data, size_t repeatBOF) {
 #ifdef DEBUG_WRITE
 #if LOG_LEVEL >= 3
     Serial.printf("> %02x %02x  ", addr, control);
@@ -86,7 +86,7 @@ bool parseFrame(uint8_t *buf, size_t len, size_t &outLen, uint8_t &addr, uint8_t
     for (; buf[i] == FRAME_BOF && i < len; i++);
 
     size_t index_addr = i;
-    if ((len - index_addr) < FRAME_SIZE - 1) {
+    if ((len - index_addr) < 3) {
         LOGE(TAG, "Read data shorter than minimum frame length");
         return false;
     }

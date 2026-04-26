@@ -24,20 +24,45 @@ static_assert(__cplusplus >= 202002L, "C++20 required for std::span");
 
 using namespace std;
 
+struct __attribute__((packed)) Timestamp {
+    uint8_t year2k;
+    uint8_t month;
+    uint8_t day;
+    uint8_t hour;
+    uint8_t minute;
+};
+
 static const char *TAG = "Main";
 static const char *DUMP_PATH = "/dump.bin";
 
 const size_t ABORT_AFTER_RETRIES = 50;
 const size_t MAX_IMAGES = 100;
 // Packets seem to be up to 192 bytes
-const size_t BUFFER_SIZE = 256;
-static uint8_t readBuffer[BUFFER_SIZE]{};
-// Transmission buffer and state variables
-static uint8_t sessionId = 0xff;
+const size_t BUFFER_SIZE = 1024;
+static uint8_t readBuffer[BUFFER_SIZE];
+
 static size_t len;
 static size_t dataLen;
-static uint8_t addr;
-static uint8_t ctrl;
+static uint8_t port;
+static uint8_t hostPort = 0xff;
+static uint8_t watchPort = 0xff;
+static uint8_t seq;
+static uint8_t session;
+
+enum SequenceType {
+    SEQ_ACK,
+    SEQ_DATA,
+};
+
+uint8_t seq_upper = 1, seq_lower = 0;
+SequenceType lastType;
+
+inline uint8_t makeseq(SequenceType type, bool incUpper = false, bool incLower = false) {
+    if (incUpper) seq_upper += 0x2;
+    if (incLower) seq_lower += 0x2;
+    return (seq_upper & 0xf) << 4 | ((type == SEQ_ACK ? 1 : seq_lower) & 0xf);
+}
+
 // Whether we're streaming the transferred data into PSRAM or FAT
 static bool usePsram;
 volatile static bool pendingManualModeToggle;
@@ -87,16 +112,16 @@ void setup() {
 }
 
 /**
- * Small helper to validate that a received frame has the expected properties (the addr & control fields).
+ * Small helper to validate that a received frame has the expected properties (the port & control fields).
  * Checking the length of the data is optional. Checking the contents of the data is out of scope.
  */
-static inline bool expect(uint8_t expectedAddr, uint8_t expectedCtrl, int expectedMinLength = -1) {
-    if (addr != expectedAddr) {
-        LOGD(TAG, "Expected addr=%02x got addr=%02x\n", expectedAddr, addr);
+static inline bool expect(uint8_t expectedport, uint8_t expectedseq, int expectedMinLength = -1) {
+    if (port != expectedport) {
+        LOGD(TAG, "Expected port=%02x got port=%02x\n", expectedport, port);
         return false;
     }
-    if (ctrl != expectedCtrl) {
-        LOGD(TAG, "Expected ctrl=%02x got ctrl=%02x\n", expectedCtrl, ctrl);
+    if (seq != expectedseq) {
+        LOGD(TAG, "Expected seq=%02x got seq=%02x\n", expectedseq, seq);
         return false;
     }
     if (expectedMinLength >= 0 && len < expectedMinLength) {
@@ -106,12 +131,19 @@ static inline bool expect(uint8_t expectedAddr, uint8_t expectedCtrl, int expect
     return true;
 }
 
-/**
- * After a successful download, cleanly disconnects from the watch. After this is performed, the watch goes back into
- * the IR menu.
- */
-bool closeSession() {
-    LOGI(TAG, "Closing session...");
+static inline bool expectAck() {
+    if (port != watchPort) {
+        LOGD(TAG, "Expected port=%02x got port=%02x\n", watchPort, port);
+        return false;
+    }
+    if ((seq & 0xF) != 1) {
+        LOGD(TAG, "Expected seq=X1 (ACK) got seq=%02x\n", seq);
+        return false;
+    }
+    if (dataLen != 0) {
+        LOGD(TAG, "Expected empty data, got %d\n", len);
+        return false;
+    }
     return true;
 }
 
@@ -129,7 +161,8 @@ bool readFrame(unsigned long timeout = 1000) {
         LOGE(TAG, "Filled buffer up all the way, probably dropping content");
         return false;
     }
-    if (!Frame::parseFrame(readBuffer, len, dataLen, addr, ctrl)) {
+    bool parseOk = Frame::parseFrame(readBuffer, len, dataLen, port, seq);
+    if (!parseOk) {
         LOGW(TAG, "Malformed");
         return false;
     }
@@ -150,17 +183,32 @@ auto concat(const First &first, const Rest &...rest) {
     return result;
 }
 
-constexpr static array<uint8_t, 5> SVC{0x01, 0x0E, 0x03, 0x00, 0x00};
-constexpr static array<uint8_t, 4> PAD4{0xFF, 0xFF, 0xFF, 0xFF};
+void appendSpan(vector<uint8_t> vec, span<uint8_t> data) {
+    vec.insert(vec.end(), data.begin(), data.end());
+}
+
+template <typename T>
+void concatStruct(vector<uint8_t> vec, T obj) {
+    auto *begin = reinterpret_cast<const uint8_t *>(&obj);
+    auto *end = begin + sizeof(T);
+    vec.insert(vec.end(), begin, end);
+}
+
 bool openSession() {
-    array<uint8_t, 12> HELLO{0xFF, 0xFF, 0xFF, 0xFF, 0x01, 0x00, 0x00};
+    static constexpr array<uint8_t, 1> ONE{0x01};
+    static constexpr array<uint8_t, 4> PAD4{0xFF, 0xFF, 0xFF, 0xFF};
+    static array<uint8_t, 4> sessionString;
 
-    auto send = concat(SVC, PAD4, array<uint8_t, 3>{0x01, 0x00, 0x00});
+    // Randomize session string (Avoid 0xC? and 0x41)
+    generate(sessionString.begin(), sessionString.end(), [] { return esp_random() & ~0b11000001; });
+    // Randomize sip endpoints
+    watchPort = esp_random() & 0xBE;
+    hostPort = watchPort + 1;
 
+    auto send = concat(ONE, sessionString, PAD4, array<uint8_t, 3>{0x01, 0x00, 0x00});
     for (uint8_t count = 0; count < 6; count++) {
         send[send.size() - 2] = count;
         Frame::writeFrame(0xff, 0x3f, send, 11);
-        dataLen = 0;
         if (readFrame(25) && expect(0xfe, 0xbf, 1)) break;
     }
 
@@ -184,24 +232,97 @@ bool openSession() {
         return false;
     }
 
-    uint8_t sipEndpointWatch = rand() & 0x7E;
-    addr = sipEndpointWatch - 1;
+    array<uint8_t, 27> START_SESSION{0x19, 0x36, 0x66, 0xBE, watchPort, 0x01, 0x01, 0x02, 0x82,
+                                     0x01, 0x01, 0x83, 0x01, 0x3F,      0x84, 0x01, 0x0F, 0x85,
+                                     0x01, 0x80, 0x86, 0x02, 0x80,      0x03, 0x08, 0x01, 0x07};
 
-    array<uint8_t, 27> START_SESSION{0x19, 0x36, 0x66, 0xBE, sipEndpointWatch,
-                                     0x01, 0x01, 0x02, 0x82, 0x01,
-                                     0x01, 0x83, 0x01, 0x3F, 0x84,
-                                     0x01, 0x0F, 0x85, 0x01, 0x80,
-                                     0x86, 0x02, 0x80, 0x03, 0x08,
-                                     0x01, 0x07};
+    send = concat(sessionString, START_SESSION);
+    // TODO i think we can 1. use our port now, and 2. init our own sequence state machine here
+    // ACTUALLY it seems like maybe the reply is dependent on what seq we send??? > 93 < 73
+    // > 23 no reply
+    // But we actually did start earlier with 3f but the logs all really start that way
+    Frame::writeFrame(0xff, 0x93, send, 5);
+    if (!readFrame()) return false;
+    LOGI(TAG, "Watch accepted SIP portess %02x and replied with seq %02x", watchPort, seq);
 
-    send = concat(SVC, START_SESSION);
-    Frame::writeFrame(0xff, 0x93, span(send).subspan(1), 5);
-    if (readFrame() && expect(sipEndpointWatch, 0x73, 1)) {
-        LOGI(TAG, "Watch accepted SIP address %02x", sipEndpointWatch);
-        return true;
-    }
+    // Now we initialize the sequence state machine
+    seq_upper = 1;
+    seq_lower = 0;
+
+    // Start with one of these?
+    static const uint8_t IDK[]{0x80, 0x03, 0x01, 0x00};
+    Frame::writeFrame(hostPort, makeseq(SEQ_DATA), IDK);
+    // Expect an 83 back
+    if (!readFrame()) return false;
+
+    // 0x80030201 -- let's negotiate a session?
+    const uint8_t SESSION_INIT[]{0x80, 0x03, 0x02, 0x01};
+    Frame::writeFrame(hostPort, makeseq(SEQ_DATA, true, true), SESSION_INIT);
+    // Expect ACK
+    if (!(readFrame() && expectAck())) return false;
+
+    // Generate session ID! Needs to be >3 <=F. Let's just use 4 for now
+    session = 4;
+    // session = esp_random() & 0xf;
+    // if (session == 0) session++;
+
+    // 0x830401000E -- assign session 04
+    const uint8_t SESSION_IDENT[]{0x83, session, 0x01, 0x00, 0x0E};
+    Frame::writeFrame(hostPort, makeseq(SEQ_DATA, false, true), SESSION_IDENT);
+    // Expect  0x8403810001 (first byte = 0x80 | session)
+    if (!readFrame()) return false;
+
+    // 0x800301007D
+    const uint8_t IDK2[]{0x80, 0x03, 0x01, 0x00, 0x7D};
+    Frame::writeFrame(hostPort, makeseq(SEQ_DATA, true, true), IDK2);
+    if (!readFrame()) return false;
 
     return true;
+}
+
+bool ping() {
+    Frame::writeFrame(hostPort, makeseq(SEQ_ACK));
+    return (readFrame() && port == watchPort && (seq & 0xf) == 1);
+}
+
+bool closeSession() {
+    LOGI(TAG, "Closing session...");
+    const uint8_t HANGUP[]{0x83, session, 0x02, 0x01};
+    Frame::writeFrame(hostPort, makeseq(SEQ_DATA, false, true), HANGUP);
+    readFrame();
+    Frame::writeFrame(hostPort, 0x53);
+    readFrame();  // replies with 73
+    Frame::writeFrame(hostPort, 0x73);
+    return true;
+}
+
+void page(int pageDir) {
+    if (pageDir == 0) return;
+    array<uint8_t, 5> PAGE_FWD{0x03, session, 0x00, 0x00, 0x02};
+    array<uint8_t, 5> PAGE_BACK{0x03, session, 0x00, 0x00, 0x03};
+    Frame::writeFrame(hostPort, makeseq(SEQ_DATA, false, true), pageDir > 0 ? PAGE_FWD : PAGE_BACK);
+    readFrame();
+    Frame::writeFrame(hostPort, makeseq(SEQ_ACK, true, false));
+    readFrame();
+}
+
+void syncTime() {
+    array<uint8_t, 5> SEND_TIME{0x03, 0x07, 0x00, 0x00, 0x07};
+
+    vector<uint8_t> send;
+    send.reserve(SEND_TIME.size() + sizeof(Timestamp));
+    send.insert(send.begin(), SEND_TIME.begin(), SEND_TIME.end());
+
+    Timestamp time = {.year2k = 20, .month = 1, .day = 30, .hour = 12, .minute = 30};
+    // concatStruct(send, time);
+    auto *begin = reinterpret_cast<const uint8_t *>(&time);
+    auto *end = begin + sizeof(Timestamp);
+    send.insert(send.end(), begin, end);
+
+    Frame::writeFrame(hostPort, 0xBE, send, 5);
+    if (readFrame() && expect(watchPort, 0x1A)) {
+        LOGI(TAG, "Accepted time?");
+    }
 }
 
 void loop() {
@@ -225,6 +346,18 @@ void loop() {
     // Needed to clear after errors
     Display::showIdleScreen();
     if (openSession()) {
+        // delay(25);
+        // syncTime();
+        for (int j = 0; j < 10; j++) {
+            for (int i = 0; i < 5; i++) {
+                ping();
+                delay(200);
+            }
+            page(1);
+            delay(100);
+        }
+
+        closeSession();
         delay(10000);
     } else {
         delay(1000);
