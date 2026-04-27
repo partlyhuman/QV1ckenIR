@@ -32,6 +32,7 @@ void writeFrame(uint8_t addr, uint8_t control, span<const uint8_t> data, size_t 
 #if LOG_LEVEL >= 3
     Serial.printf("> %02x %02x  ", addr, control);
     for (auto b : data) Serial.printf("%02x ", b);
+    Serial.println();
 #endif
 #endif
     IRDA_tx(true);
@@ -57,11 +58,11 @@ void writeFrame(uint8_t addr, uint8_t control, span<const uint8_t> data, size_t 
 
     writeEscaped(crc & 0xff);
     writeEscaped((crc >> 8) & 0xff);
-#ifdef DEBUG_WRITE
-#if LOG_LEVEL >= 3
-    Serial.printf(" %02x %02x\n", crc & 0xff, crc >> 8);
-#endif
-#endif
+    // #ifdef DEBUG_WRITE
+    // #if LOG_LEVEL >= 3
+    //     Serial.printf(" %02x %02x\n", crc & 0xff, crc >> 8);
+    // #endif
+    // #endif
 
     IRDA.write(FRAME_EOF);
     IRDA.flush(true);
