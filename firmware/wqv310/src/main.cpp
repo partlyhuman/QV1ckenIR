@@ -4,11 +4,7 @@
  */
 #include <FFat.h>
 
-static_assert(__cplusplus >= 202002L, "C++20 required for std::span");
-
-#include <array>
-#include <span>
-#include <string>
+#include <cstring>
 
 #include "config.h"
 #include "display.h"
@@ -17,12 +13,11 @@ static_assert(__cplusplus >= 202002L, "C++20 required for std::span");
 #include "irda_hal.h"
 #include "log.h"
 #include "msc.h"
-
+#include "stl_helpers.h"
 #ifdef ENABLE_PSRAM
 #include "PSRamFS.h"
 #endif
 
-using namespace std;
 using namespace Frame;
 
 struct __attribute__((packed)) Timestamp {
@@ -58,6 +53,7 @@ enum SequenceType {
 uint8_t seq_upper = 1, seq_lower = 0;
 SequenceType lastType;
 
+// TODO simplify this, it should really inc lower only when data type, and know the difference between ack and ack loop
 inline uint8_t makeseq(SequenceType type, bool incUpper = false, bool incLower = false) {
     if (incUpper) seq_upper += 0x2;
     if (incLower) seq_lower += 0x2;
@@ -116,7 +112,7 @@ void setup() {
  * Small helper to validate that a received frame has the expected properties (the port & control fields).
  * Checking the length of the data is optional. Checking the contents of the data is out of scope.
  */
-static inline bool expect(uint8_t expectedport, uint8_t expectedseq, int expectedMinLength = -1) {
+static bool expect(uint8_t expectedport, uint8_t expectedseq, int expectedMinLength = -1) {
     if (port != expectedport) {
         LOGD(TAG, "Expected port=%02x got port=%02x\n", expectedport, port);
         return false;
@@ -132,7 +128,7 @@ static inline bool expect(uint8_t expectedport, uint8_t expectedseq, int expecte
     return true;
 }
 
-static inline bool expectAck() {
+static bool expectAck() {
     if (port != watchPort) {
         LOGD(TAG, "Expected port=%02x got port=%02x\n", watchPort, port);
         return false;
@@ -148,6 +144,8 @@ static inline bool expectAck() {
     return true;
 }
 
+// TODO we should have a higher-level thing that replies with a state 0x03 when we parse fail or resends last when
+// timing out
 bool readFrame(unsigned long timeout = 1000) {
     len = 0;
     dataLen = 0;
@@ -170,44 +168,10 @@ bool readFrame(unsigned long timeout = 1000) {
     return true;
 }
 
-template <typename First, typename... Rest>
-auto concat(const First &first, const Rest &...rest) {
-    using T = typename First::value_type;
-    std::vector<T> result;
-
-    size_t totalSize = first.size() + (rest.size() + ...);
-    result.reserve(totalSize);
-
-    result.insert(result.end(), first.begin(), first.end());
-    (result.insert(result.end(), rest.begin(), rest.end()), ...);
-
-    return result;
-}
-
-// template <typename... Spans>
-// vector<uint8_t> concat(Spans... spans) {
-//     vector<uint8_t> result;
-//     size_t totalSize = (spans.size() + ... + 0);
-//     result.reserve(totalSize);
-//     (result.insert(result.end(), spans.begin(), spans.end()), ...);
-//     return result;
-// }
-
-void appendSpan(vector<uint8_t> vec, span<const uint8_t> data) {
-    vec.insert(vec.end(), data.begin(), data.end());
-}
-
-template <typename T>
-void appendStruct(vector<uint8_t> vec, T obj) {
-    auto *begin = reinterpret_cast<const uint8_t *>(&obj);
-    auto *end = begin + sizeof(T);
-    vec.insert(vec.end(), begin, end);
-}
-
 bool openSession() {
-    static constexpr array<uint8_t, 1> IRDA_STACK_CMD{0x01};
-    static constexpr array<uint8_t, 4> PAD4{0xFF, 0xFF, 0xFF, 0xFF};
-    static array<uint8_t, 4> IRDA_RAND_STR;
+    static constexpr std::array<uint8_t, 1> IRDA_STACK_CMD{0x01};
+    static constexpr std::array<uint8_t, 4> PAD4{0xFF, 0xFF, 0xFF, 0xFF};
+    static std::array<uint8_t, 4> IRDA_RAND_STR;
 
     // Randomize session string (Avoid 0xC? and 0x41)
     generate(IRDA_RAND_STR.begin(), IRDA_RAND_STR.end(), [] { return esp_random() & ~0b11000001; });
@@ -215,7 +179,7 @@ bool openSession() {
     watchPort = esp_random() & 0xBE;
     ourPort = watchPort + 1;
 
-    auto send = concat(IRDA_STACK_CMD, IRDA_RAND_STR, PAD4, array<uint8_t, 3>{0x01, 0x00, 0x00});
+    auto send = concat(IRDA_STACK_CMD, IRDA_RAND_STR, PAD4, std::array<uint8_t, 3>{0x01, 0x00, 0x00});
     for (uint8_t count = 0; count < 6; count++) {
         send[send.size() - 2] = count;
         writeFrame(0xff, 0x3f, send, 11);
@@ -230,7 +194,7 @@ bool openSession() {
     // 01193666 BE0E0300 00010500 8C040043 4153494F 20574943 20323431 312F4952
     //                                     C A S I  O   W I  C 2 4 1  1 / I R
 
-    auto watchIdString = string(reinterpret_cast<const char *>(readBuffer + 15), 17);
+    auto watchIdString = std::string(reinterpret_cast<const char *>(readBuffer + 15), 17);
     LOGI(TAG, "Connected to watch '%s'", watchIdString.c_str());
 
     if (watchIdString == "CASIO WIC 2411/IR") {
@@ -242,9 +206,9 @@ bool openSession() {
         return false;
     }
 
-    array<uint8_t, 27> START_SESSION{0x19, 0x36, 0x66, 0xBE, watchPort, 0x01, 0x01, 0x02, 0x82,
-                                     0x01, 0x01, 0x83, 0x01, 0x3F,      0x84, 0x01, 0x0F, 0x85,
-                                     0x01, 0x80, 0x86, 0x02, 0x80,      0x03, 0x08, 0x01, 0x07};
+    std::array<uint8_t, 27> START_SESSION{0x19, 0x36, 0x66, 0xBE, watchPort, 0x01, 0x01, 0x02, 0x82,
+                                          0x01, 0x01, 0x83, 0x01, 0x3F,      0x84, 0x01, 0x0F, 0x85,
+                                          0x01, 0x80, 0x86, 0x02, 0x80,      0x03, 0x08, 0x01, 0x07};
 
     send = concat(IRDA_RAND_STR, START_SESSION);
     // TODO i think we can 1. use our port now, and 2. init our own sequence state machine here
@@ -289,24 +253,10 @@ bool openSession() {
     // expect ack
     if (!readFrame()) return false;
 
-    // THIS DOES APPEAR TO START A RECONNECT WITH SWAPPED ROLES?
-    // > 0x0308000001
-    const uint8_t REQUEST_REVERSE_ROLES[]{0x03, session, 0x00, 0x00, 0x01};
-    writeFrame(ourPort, makeseq(SEQ_DATA, false, true), REQUEST_REVERSE_ROLES);
-    // < 0x0803010C100400002580110103000104
-    readFrame();
-    // > 0xD1
-    writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
-    // < 0x080300000D
-    readFrame();
-    // > 0xF1
-    writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
-    readFrame();
-
-    // // Is 0x7d sometimes there and sometimes not???
-    // const uint8_t SESSION_INIT_END[]{0x80, 0x03, 0x01, 0x00, 0x7D};
-    // writeFrame(ourPort, makeseq(SEQ_DATA, true, true), SESSION_INIT_END);
-    // if (!readFrame()) return false;
+    // TODO we can't reverse roles after going into this state?
+    // // Is 0x7d sometimes there and sometimes not??? // 0x7d is escape so this can't be right without a subsequent
+    // byte const uint8_t SESSION_INIT_END[]{0x80, 0x03, 0x01, 0x00, 0x7D}; writeFrame(ourPort, makeseq(SEQ_DATA, true,
+    // true), SESSION_INIT_END); if (!readFrame()) return false;
 
     return true;
 }
@@ -364,7 +314,7 @@ bool openSessionInClientRole() {
     if (readBuffer[0] == 0x19) {
         ourPort = readBuffer[8];
         watchPort = ourPort + 1;
-        LOGI(TAG, "Accepting port assigned by watch %02x", ourPort);
+        LOGI(TAG, "Accepting ports assigned by watch: device=%02x watch=%02x", ourPort, watchPort);
     }
 
     // > 0x73 0x0E030000193666BE01010282010183013F84010F85018086028003080104
@@ -377,7 +327,6 @@ bool openSessionInClientRole() {
 
     // < 0x10 0x80010100
     // readFrame(); // ackLoop returned because this was already in the buffer
-    LOGD(TAG, "Ack loop done");
     // > 0x30 0x81008100
     constexpr uint8_t SESSION_INIT_0[]{0x81, 0x00, 0x81, 0x00};
     writeFrame(ourPort, makeseq(SEQ_DATA, true, false), SESSION_INIT_0);
@@ -401,12 +350,14 @@ bool openSessionInClientRole() {
 
     // < 0x76 0x8903010001
     readFrame();
-    // if (dataLen > 0 && readBuffer[0] & 0xf0 == 0x80) {
-    session = readBuffer[0] & 0xf;
-    LOGI(TAG, "Received session id %01x from watch", session);
-    // }
+    if (dataLen > 0 && (readBuffer[0] & 0xf0) == 0x80) {
+        session = readBuffer[0] & 0xf;
+        LOGI(TAG, "Received session id %01x from watch", session);
+    } else {
+        LOGE(TAG, "Missed session id, should have been able to figure it out");
+        return false;
+    }
     // > 0x96 0x830981000E
-
     uint8_t SESSION_CONFIRM[]{0x83, session, 0x81, 0x00, 0x0e};
     writeFrame(ourPort, makeseq(SEQ_DATA, true, true), SESSION_CONFIRM);
 
@@ -422,6 +373,7 @@ bool openSessionInClientRole() {
 
     // loop while received frame is ack
 
+    LOGD(TAG, "Done opening session in client role");
     return true;
 }
 
@@ -444,87 +396,40 @@ bool closeSession() {
     return true;
 }
 
-void endSessionSwapRoles() {
+void swapRolesAndCloseSession() {
     LOGI(TAG, "Ending session and swapping roles");
 
-    // Possibilities: (session = 08)
-    // 0x030806
-    // const uint8_t SWAP[]{0x03, session, 0x06};
-    // writeFrame(ourPort, makeseq(SEQ_DATA, false, true), SWAP);
-
-    // ping();
+    // THIS DOES APPEAR TO START A RECONNECT WITH SWAPPED ROLES?
+    // > 0x0308000001
+    const uint8_t REQUEST_REVERSE_ROLES[]{0x03, session, 0x00, 0x00, 0x01};
+    writeFrame(ourPort, makeseq(SEQ_DATA, false, true), REQUEST_REVERSE_ROLES);
+    // < 0x0803010C100400002580110103000104
+    readFrame();
+    // > 0xD1
+    writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+    // < 0x080300000D
+    readFrame();
+    // > 0xF1
+    writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+    readFrame();
 
     closeSession();
-
-    openSessionInClientRole();
-}
-
-bool setupSyncSession() {
-    LOGI(TAG, "Setting up sync session...");
-    const uint8_t START_SYNC_SESSION[]{0x19, 0x36, 0x66, 0xBE, 0x01, 0x03, 0x00, 0x00, 0x70, 0x01,
-                                       0x01, 0x3F, 0x82, 0x01, 0x01, 0x83, 0x01, 0x3F, 0x84, 0x01,
-                                       0x01, 0x85, 0x01, 0x80, 0x86, 0x01, 0x03, 0x08, 0x01, 0xFF};
-    writeFrame(0xff, 0x93, START_SYNC_SESSION);
-    readFrame();
-
-    ping();
-
-    const uint8_t S0[]{0x81, 0, 0x81, 0};
-    writeFrame(ourPort, makeseq(SEQ_DATA, true, true), S0);
-    // ??
-    readFrame();
-
-    const uint8_t S1[]{0x83, session, 0x81, 0x00, 0x0E};
-    // > 0x830781000E
-    writeFrame(ourPort, makeseq(SEQ_DATA, true, true), S1);
-    // < 0x07030003000104
-    readFrame();
-    // > ACK
-    writeFrame(ourPort, makeseq(SEQ_ACK, true, true));
-    // < 0x0703000C10040000258011010320010C
-    readFrame();
-
-    // keep ack-ing until we get more from the watch
-    while (ping());
-
-    // we should have something in the data now
-    // <
-    // 0x070300000010000101341004000000000000000008007403000000001166723A330D0A69643A434153494F2057494320323431312F495220202020200D0A10020000
-    // get 26 bytes starting at 30
-    if (dataLen < 56) {
-        LOGE(TAG, "Expected at least 56 bytes, got %d", dataLen);
-        return false;
-    }
-    auto syncIdString = string(reinterpret_cast<const char *>(readBuffer + 30), 26);
-    LOGI(TAG, "Connected to sync endpoint '%s'", syncIdString.c_str());
-
-    for (int i = 0; i < 10; i++) ping();
-
-    const uint8_t SYNC_ID[]{0x03, session, 0x00, 0x00, 0x00, 0x11, 0x01, 0x30, 0x10, 0x04, 0x08, 0x00, 0x74, 0x03,
-                            0x00, 0x00,    0x00, 0x00, 0x08, 0x00, 0x74, 0x03, 0x10, 0x00, 0x00, 0x00, 0x11, 0x66,
-                            0x72, 0x3A,    0x31, 0x0D, 0x0A, 0x69, 0x64, 0x3A, 0x4C, 0x49, 0x4E, 0x4B, 0x20, 0x51,
-                            0x57, 0x32,    0x34, 0x31, 0x31, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x0D, 0x0A};
-    writeFrame(ourPort, makeseq(SEQ_DATA, true, true), SYNC_ID);
-    readFrame();
-
-    LOGI(TAG, "That's all i have so far");
-    return true;
 }
 
 void page(int pageDir) {
     if (pageDir == 0) return;
-    array<uint8_t, 5> PAGE_FWD{0x03, session, 0x00, 0x00, 0x02};
-    array<uint8_t, 5> PAGE_BACK{0x03, session, 0x00, 0x00, 0x03};
+    std::array<uint8_t, 5> PAGE_FWD{0x03, session, 0x00, 0x00, 0x02};
+    std::array<uint8_t, 5> PAGE_BACK{0x03, session, 0x00, 0x00, 0x03};
     writeFrame(ourPort, makeseq(SEQ_DATA, false, true), pageDir > 0 ? PAGE_FWD : PAGE_BACK);
     readFrame();
     writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
     readFrame();
 }
 
-void syncTime() {
-    array<uint8_t, 5> SEND_TIME{0x03, 0x07, 0x00, 0x00, 0x07};
+void sendTime() {
+    std::array<uint8_t, 5> SEND_TIME{0x03, 0x07, 0x00, 0x00, 0x07};
 
-    vector<uint8_t> send;
+    std::vector<uint8_t> send;
     send.reserve(SEND_TIME.size() + sizeof(Timestamp));
     send.insert(send.begin(), SEND_TIME.begin(), SEND_TIME.end());
 
@@ -538,6 +443,99 @@ void syncTime() {
     if (readFrame() && expect(watchPort, 0x1A)) {
         LOGI(TAG, "Accepted time?");
     }
+}
+
+std::vector<uint8_t> cmdToResponse(std::span<const uint8_t> src, int8_t shifts,
+                                   std::span<const uint8_t> extraData = {}) {
+    constexpr char RESPONSE_BDY0[] = "BDY0";
+    std::vector<uint8_t> response(src.begin(), src.end());
+    response.reserve(response.size() + 4 + 4 + extraData.size());
+
+    // 1. First bytes: swap [session] 03 -> 03 [session]
+    response[0] = 0x03;
+    response[1] = session;
+
+    // 2. Last byte 0x2b: 02 -> 01
+    response[0x2b] = 0x01;
+
+    // 3. Byte 0xf: 00 -> 40
+    response[0xf] = 0x40;
+
+    // 4. Byte 0x18 & 0x20: swap
+    response[0x18] = src[0x20];
+    response[0x20] = src[0x18];
+
+    // 5. Byte 0x29 unchanged
+
+    // 6. Shifted fields
+    response[0x9] = static_cast<uint8_t>(static_cast<int8_t>(src[0x9]) + shifts);
+    response[0xd] = static_cast<uint8_t>(static_cast<int8_t>(src[0xd]) + shifts);
+    response[0x13] = static_cast<uint8_t>(static_cast<int8_t>(src[0x13]) + shifts);
+
+    // Append "BDY0" without \0
+    response.insert(response.end(), std::begin(RESPONSE_BDY0), std::end(RESPONSE_BDY0) - 1);
+
+    // Append 4-byte size of extended data
+    uint32_t extraSize = static_cast<uint32_t>(extraData.size());
+    response.push_back(static_cast<uint8_t>((extraSize >> 24) & 0xFF));
+    response.push_back(static_cast<uint8_t>((extraSize >> 16) & 0xFF));
+    response.push_back(static_cast<uint8_t>((extraSize >> 8) & 0xFF));
+    response.push_back(static_cast<uint8_t>(extraSize & 0xFF));
+
+    // Append extended data
+    response.insert(response.end(), extraData.begin(), extraData.end());
+    return response;
+}
+
+std::string getCmdName() {
+    return std::string(reinterpret_cast<const char *>(readBuffer + dataLen - 4), 4);
+}
+
+bool syncInClientRole() {
+    ackLoopInClientRole();
+
+    if (startsWith(std::span(readBuffer), {session, 0x03, 0x00, 0x00, 0x00, 0x10})) {
+        // This one is null terminated
+        auto watchFw = std::string(reinterpret_cast<const char *>(readBuffer + 0x26), 0x16);
+        LOGI(TAG, "Identified as id:'%s'", watchFw.c_str());
+    } else {
+        return false;
+    }
+    // TODO or skip the ack/ack
+    writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+
+    if (!(readFrame() && expectAck())) return false;
+    uint8_t FW_IDENT[]{0x03, session, 0x00, 0x00, 0x00, 0x11, 0x01, 0x30, 0x10, 0x04, 0x08, 0x00, 0x74, 0x03,
+                       0x00, 0x00,    0x00, 0x00, 0x08, 0x00, 0x74, 0x03, 0x10, 0x00, 0x00, 0x00, 0x11, 0x66,
+                       0x72, 0x3A,    0x31, 0x0D, 0x0A, 0x69, 0x64, 0x3A, 0x4C, 0x49, 0x4E, 0x4B, 0x20, 0x51,
+                       0x57, 0x32,    0x34, 0x31, 0x31, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x0D, 0x0A};
+    writeFrame(ourPort, makeseq(SEQ_DATA, false, true), FW_IDENT);
+
+    // < 0xBE 0x090301
+    if (!readFrame()) return false;
+    if (!startsWith(std::span(readBuffer), {session, 0x03, 0x01})) return false;
+    LOGD(TAG, "i++ from watch");
+    writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+
+    // < 0xB0
+    // 0x09030000002003FF003E107DE1003A580000000034080074031000000008007403000000000008000800800002434D4430000000060000000100405748543000000006010052494D47
+    readFrame();
+    LOGI(TAG, "<< %s", getCmdName().c_str());  // RIMG
+    // RIMG / +0x20 / 52 bytes extra data
+    auto cmdSpan = std::span(readBuffer).subspan(0, 44);
+    LOGI(TAG, ">> BDY0");
+    constexpr uint8_t RIMG_EXTRA_DATA[]{0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x08, 0x00, 0x06, 0x00, 0x02, 0x07, 0x08,
+                                        0x00, 0x06, 0x00, 0x06, 0x40, 0x04, 0xB0, 0x05, 0x00, 0x03, 0xC0, 0x04, 0x00,
+                                        0x03, 0x00, 0x03, 0x20, 0x02, 0x58, 0x02, 0x80, 0x01, 0xE0, 0x01, 0x40, 0x00,
+                                        0xF0, 0x03, 0xC4, 0x20, 0x04, 0x01, 0xC4, 0x20, 0x05, 0x00, 0x00, 0x18, 0x00};
+    auto response = cmdToResponse(cmdSpan, 20, RIMG_EXTRA_DATA);
+    writeFrame(ourPort, makeseq(SEQ_DATA, true, true), response);
+
+    readFrame();
+    LOGI(TAG, "< %s", getCmdName().c_str());  // RIMG
+    LOGV(TAG, "THAT'S ALL I GOT");
+
+    return true;
 }
 
 void loop() {
@@ -561,27 +559,15 @@ void loop() {
     // Needed to clear after errors
     Display::showIdleScreen();
     if (openSession()) {
-        // setupSyncSession();
         for (int i = 0; i < 5; i++) {
             ping();
             delay(100);
         }
 
-        endSessionSwapRoles();
+        swapRolesAndCloseSession();
+        openSessionInClientRole();
+        syncInClientRole();
 
-        // delay(25);
-        // syncTime();
-
-        // for (int j = 0; j < 10; j++) {
-        //     for (int i = 0; i < 5; i++) {
-        //         ping();
-        //         delay(200);
-        //     }
-        //     page(1);
-        //     delay(100);
-        // }
-
-        closeSession();
         delay(10000);
     } else {
         delay(1000);
