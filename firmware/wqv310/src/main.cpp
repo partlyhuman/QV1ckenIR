@@ -1,7 +1,3 @@
-/**
- * Implementation of WQV-1 protocol by @partlyhuman
- * Based on reverse engineering by https://www.mgroeber.de/wqvprot.html
- */
 #include <FFat.h>
 
 #include <cstring>
@@ -397,7 +393,7 @@ bool closeSession() {
     return true;
 }
 
-void swapRolesAndCloseSession() {
+bool swapRolesAndCloseSession() {
     LOGI(TAG, "Ending session and swapping roles");
 
     // THIS DOES APPEAR TO START A RECONNECT WITH SWAPPED ROLES?
@@ -415,6 +411,7 @@ void swapRolesAndCloseSession() {
     readFrame();
 
     closeSession();
+    return true;
 }
 
 void page(int pageDir) {
@@ -492,9 +489,18 @@ std::string getCmdName() {
     return std::string(reinterpret_cast<const char *>(readBuffer + dataLen - 4), 4);
 }
 
+uint32_t readBigEndianUint32(const uint8_t *p) {
+    return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | (uint32_t(p[3]));
+}
+
 bool syncInClientRole() {
     std::vector<uint8_t> response;
     std::span<uint8_t> cmdSpan;
+
+    LOGI(TAG, "Formatting FatFS...");
+    FFat.end();
+    FFat.format();
+    FFat.begin();
 
     ackLoopInClientRole();
     // < 0x9C
@@ -581,7 +587,89 @@ bool syncInClientRole() {
     writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
 
     ackLoopInClientRole();
-    LOGI(TAG, "THIS IS HOW FAR I GOT, MAYBE THIS IS THE FILE!?");
+    if (!startsWith(std::span(readBuffer), {session, 0x03, 0x00, 0x00, 0x00, 0x20})) return false;
+    std::string fileCmdName = std::string(reinterpret_cast<const char *>(readBuffer + 0x42), 4);
+    std::string fileName = "/" + std::string(reinterpret_cast<const char *>(readBuffer + 0x4C), 12);
+    int fileNum = 0;
+    File file = FFat.open(fileName.c_str(), "w", true);
+    LOGI(TAG, "<< %s saving to %s", fileCmdName.c_str(), fileName.c_str());
+    writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+
+    readFrame();
+    if (!startsWith(std::span(readBuffer), {session, 0x03, 0x00, 0x00})) return false;
+    // Find beginning of JPEG file
+    auto begin = readBuffer;
+    auto end = readBuffer + dataLen;
+    constexpr uint8_t marker[] = {0xFF, 0xD8, 0xFF, 0xE0};
+    auto it = std::search(begin, end, std::begin(marker), std::end(marker));
+    if (it == end) {
+        LOGE(TAG, "Expected to find the JPEG start marker");
+        return false;
+    }
+    file.write(it, end - it);
+    LOGI(TAG, "Starting copying bytes from position %02x", it - readBuffer);
+    writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+
+    int chunkNumber, chunksRemain;
+    bool isContinuationFrame = false;
+    for (chunksRemain = INT_MAX; chunksRemain > 1;) {
+        // Sender's upper sequence stays the same as long as we echo
+        // Periodically we send <session> 0B 06, to allow the sender to start a new upper sequence
+
+        // Sender alternates between long and short prefixes (chunk split into two frames)
+
+        // 4 bytes:    0B <session> 00 00
+        //  -- odd frames end here --
+        // 10 bytes:   00 20 03 FF 01 FA 10 01 01 EE (constant string)
+        //  -- very first frame ends here --
+        // 4 bytes:    00 00 00 01 (counts up from 0 first chunk)
+        // 4 bytes:    00 00 00 10 (counts down chunks remaining)
+        // DATA
+
+        readFrame();
+        LOGD(TAG, "Chunk frame 1/2");
+        // First frame
+        uint8_t DATA_FRAME[]{session, 0x03, 0x00, 0x00};
+        uint8_t DATA_CHUNK[]{0x00, 0x20, 0x03, 0xFF};
+
+        if (std::equal(readBuffer, readBuffer + 4, std::begin(DATA_FRAME))) {
+            LOGD(TAG, "first4 check out");
+        }
+        if (std::equal(readBuffer + 4, readBuffer + 8, std::begin(DATA_CHUNK))) {
+            LOGD(TAG, "chunk tag checks out");
+        }
+        //  TODO 8-12 is variant? has some meaning...?  look into this
+        chunkNumber = readBigEndianUint32(readBuffer + 14);
+        chunksRemain = readBigEndianUint32(readBuffer + 18);
+        LOGD(TAG, "Chunk %02d/%02d, %02d remain", chunkNumber, chunkNumber + chunksRemain, chunksRemain);
+        file.write(readBuffer + 22, dataLen - 22);
+
+        if ((chunkNumber % 2) == 0) {
+            LOGD(TAG, ">> continue...");
+            uint8_t CONTINUE[]{0x03, session, 0x06};
+            writeFrame(ourPort, makeseq(SEQ_DATA, true, true), CONTINUE);
+        } else {
+            writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+        }
+
+        // TODO don't hardcode 2 frames/chunk, determine from framing -- or even seq
+        readFrame();
+        if (dataLen > 0) {
+            LOGD(TAG, "Chunk frame 2/2");
+            // Continuation frame
+            if (std::equal(readBuffer, readBuffer + 4, std::begin(DATA_FRAME))) {
+                LOGD(TAG, "first4 check out");
+            }
+            // NOTE no protection here for data missing
+            file.write(readBuffer + 4, dataLen - 4);
+        } else {
+            LOGD(TAG, "No continuation frame... might be ok if this is the end frame");
+        }
+        writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+    }
+
+    file.close();
+    LOGI(TAG, "I WROTE THE FILE!!!! THIS IS NOT A DRILL!!!");
 
     return true;
 }
@@ -612,9 +700,12 @@ void loop() {
             delay(100);
         }
 
-        swapRolesAndCloseSession();
-        openSessionInClientRole();
-        syncInClientRole();
+        if (swapRolesAndCloseSession() && openSessionInClientRole() && syncInClientRole()) {
+            Display::showMountedScreen();
+            delay(500);
+            MassStorage::begin();
+            return;
+        }
 
         delay(10000);
     } else {
