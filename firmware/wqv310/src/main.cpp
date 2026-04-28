@@ -264,11 +264,12 @@ bool openSession() {
     return true;
 }
 
-void ackLoopInClientRole(size_t limit = 100) {
-    for (size_t i = 0; i < limit; i++) {
-        if (!readFrame()) {
+void ackLoopInClientRole(unsigned long timeout = 2000) {
+    while (true) {
+        if (!readFrame(timeout)) {
             return;
         }
+
         // LOGD(TAG, "Is this ack? port=%d watchport=%d dataLen=%d seq=%d seq&f=%d", port, watchPort, dataLen, seq,
         //      (seq & 0xf));
         if (/*port == watchPort &&*/ dataLen == 0 && (seq & 0xf) == 1) {
@@ -498,6 +499,9 @@ std::string getCmdName() {
 uint32_t readBigEndianUint32(const uint8_t *p) {
     return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | (uint32_t(p[3]));
 }
+uint16_t readBigEndianUint16(const uint8_t *p) {
+    return (uint32_t(p[0]) << 8) | (uint32_t(p[1]));
+}
 
 bool syncInClientRole() {
     std::vector<uint8_t> response;
@@ -594,17 +598,25 @@ bool syncInClientRole() {
     // TODO remove this check from the bottom of the loop and move this to the top of the loop. Once we know what ends
     // it.
 
-    for (size_t fileCount = 0; fileCount < 3; fileCount++) {
+    for (size_t fileCount = 0; true; fileCount++) {
         size_t chunkNumber, chunksRemain, chunkBytesTotal, chunkBytesReceived;
 
-        LOGD(TAG, "READY FOR NEXT FILE!");
+        ackLoopInClientRole();
+        if (expectStartsWith({session, 0x03, 0x00, 0x00, 0x00, 0x30})) {
+            LOGI(TAG, "Nothing more to receive! We're done.");
+            writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+            break;
+        } else if (expectStartsWith({session, 0x03, 0x00, 0x00, 0x00, 0x20})) {
+            LOGD(TAG, "READY FOR NEXT FILE!");
+        } else {
+            LOGE(TAG, "Unexpected command");
+            return false;
+        }
 
         // FIL0
-        ackLoopInClientRole();
-        if (!expectStartsWith({session, 0x03, 0x00, 0x00, 0x00, 0x20})) return false;
         std::string fileCmdName = std::string(reinterpret_cast<const char *>(readBuffer + 0x42), 4);
         std::string fileName = std::string(reinterpret_cast<const char *>(readBuffer + 0x4C), 12);
-        File file = FFat.open(("/" + fileName).c_str(), "w", true);
+        File file = FFat.open(("/" + fileName + ".jpg").c_str(), "w", true);
         // We'll use this later in the RDY0 response
         uint8_t cmdFil0Seq = readBuffer[0x31];
         LOGD(TAG, "cmdFil0Seq %02x", cmdFil0Seq);
@@ -638,7 +650,9 @@ bool syncInClientRole() {
             // 4 bytes:    0B <session> 00 00
             //  -- odd frames end here --
             // 10 bytes:   00 20 03 FF 01 FA 10 01 01 EE (constant string)
-            // 4 bytes:    01 fa 10 01 (encodes number of bytes in the chunk and whether it's the final chunk)
+            //  -- beginning of counted bytes --
+            // 4 bytes:    01 fa 10 01 (encodes number of bytes in the full chunk, starting right here, and whether
+            // it's the final chunk)
             //  -- very first frame ends here --
             // 4 bytes:    00 00 00 01 (counts up from 0 first chunk)
             // 4 bytes:    00 00 00 10 (counts down chunks remaining)
@@ -658,16 +672,16 @@ bool syncInClientRole() {
             }
 
             chunkBytesReceived = 0;
-            chunkBytesTotal = readBuffer[9];
             isFinalChunk = (readBuffer[11] & 0x80) > 0;
+            chunkBytesTotal = readBigEndianUint16(readBuffer + 8);
             chunkNumber = readBigEndianUint32(readBuffer + 14);
             chunksRemain = readBigEndianUint32(readBuffer + 18);
 
             LOGD(TAG, "Chunk %02d/%02d, %02d remain", chunkNumber, chunkNumber + chunksRemain, chunksRemain);
             file.write(readBuffer + 22, dataLen - 22);
 
-            // Remember after parsing the frame it is unescaped
-            chunkBytesReceived += (dataLen - 22);
+            // Chunk size count excludes only the initial session framing (4b) and constant id string (10b) before count
+            chunkBytesReceived += dataLen - 14;
             LOGD(TAG, "Received %d/%d bytes in chunk, expecting more frames? %s", chunkBytesReceived, chunkBytesTotal,
                  chunkBytesReceived < chunkBytesTotal ? "Yes" : "No");
 
@@ -689,7 +703,8 @@ bool syncInClientRole() {
                 }
                 // NOTE no protection here for data missing
                 file.write(readBuffer + 4, dataLen - 4);
-                chunkBytesReceived += (dataLen - 4);
+                // Chunk size includes everything after first 14 bytes of first frame
+                chunkBytesReceived += dataLen;
                 LOGD(TAG, "Received %d/%d bytes in chunk, expecting more frames? %s", chunkBytesReceived,
                      chunkBytesTotal, chunkBytesReceived < chunkBytesTotal ? "Yes" : "No");
 
@@ -753,6 +768,8 @@ void loop() {
         }
 
         if (swapRolesAndCloseSession() && openSessionInClientRole() && syncInClientRole()) {
+            // Eventually we'll get hung up on, use a low timeout
+            ackLoopInClientRole(250);
             Display::showMountedScreen();
             delay(500);
             MassStorage::begin();
