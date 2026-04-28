@@ -140,6 +140,12 @@ static bool expectAck() {
     return true;
 }
 
+template <size_t N>
+static bool expectStartsWith(const uint8_t (&lit)[N]) {
+    std::span buf(readBuffer);
+    return buf.size() >= N && std::equal(buf.begin(), buf.begin() + N, lit);
+}
+
 // TODO we should have a higher-level thing that replies with a state 0x03 when we parse fail or resends last when
 // timing out
 bool readFrame(unsigned long timeout = 1000) {
@@ -505,7 +511,7 @@ bool syncInClientRole() {
     ackLoopInClientRole();
     // < 0x9C
     // 0x090300000010000101341004000000000000000008007403000000001166723A330D0A69643A434153494F2057494320323431312F495220202020200D0A10020000
-    if (startsWith(std::span(readBuffer), {session, 0x03, 0x00, 0x00, 0x00, 0x10})) {
+    if (expectStartsWith({session, 0x03, 0x00, 0x00, 0x00, 0x10})) {
         // This one is null terminated
         auto watchFw = std::string(reinterpret_cast<const char *>(readBuffer + 0x26), 0x16);
         LOGI(TAG, "Identified as id:'%s'", watchFw.c_str());
@@ -524,7 +530,7 @@ bool syncInClientRole() {
 
     // < 0xBE 0x090301
     ackLoopInClientRole();
-    if (!startsWith(std::span(readBuffer), {session, 0x03, 0x01})) return false;
+    if (!expectStartsWith({session, 0x03, 0x01})) return false;
     LOGD(TAG, "<< Yield next object from watch");
     writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
 
@@ -545,7 +551,7 @@ bool syncInClientRole() {
 
     // < 0xBE 0x090301
     ackLoopInClientRole();
-    if (!startsWith(std::span(readBuffer), {session, 0x03, 0x01})) return false;
+    if (!expectStartsWith({session, 0x03, 0x01})) return false;
     LOGD(TAG, "i++ from watch");
     writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
 
@@ -563,7 +569,7 @@ bool syncInClientRole() {
 
     // < 0xBE 0x090301
     ackLoopInClientRole();
-    if (!startsWith(std::span(readBuffer), {session, 0x03, 0x01})) return false;
+    if (!expectStartsWith({session, 0x03, 0x01})) return false;
     LOGD(TAG, "i++ from watch");
     writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
 
@@ -582,95 +588,141 @@ bool syncInClientRole() {
 
     // < 0xBE 0x090301
     ackLoopInClientRole();
-    if (!startsWith(std::span(readBuffer), {session, 0x03, 0x01})) return false;
+    if (!expectStartsWith({session, 0x03, 0x01})) return false;
     LOGD(TAG, "i++ from watch");
     writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+    // TODO remove this check from the bottom of the loop and move this to the top of the loop. Once we know what ends
+    // it.
 
-    ackLoopInClientRole();
-    if (!startsWith(std::span(readBuffer), {session, 0x03, 0x00, 0x00, 0x00, 0x20})) return false;
-    std::string fileCmdName = std::string(reinterpret_cast<const char *>(readBuffer + 0x42), 4);
-    std::string fileName = "/" + std::string(reinterpret_cast<const char *>(readBuffer + 0x4C), 12);
-    int fileNum = 0;
-    File file = FFat.open(fileName.c_str(), "w", true);
-    LOGI(TAG, "<< %s saving to %s", fileCmdName.c_str(), fileName.c_str());
-    writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+    for (size_t fileCount = 0; fileCount < 3; fileCount++) {
+        size_t chunkNumber, chunksRemain, chunkBytesTotal, chunkBytesReceived;
 
-    readFrame();
-    if (!startsWith(std::span(readBuffer), {session, 0x03, 0x00, 0x00})) return false;
-    // Find beginning of JPEG file
-    auto begin = readBuffer;
-    auto end = readBuffer + dataLen;
-    constexpr uint8_t marker[] = {0xFF, 0xD8, 0xFF, 0xE0};
-    auto it = std::search(begin, end, std::begin(marker), std::end(marker));
-    if (it == end) {
-        LOGE(TAG, "Expected to find the JPEG start marker");
-        return false;
-    }
-    file.write(it, end - it);
-    LOGI(TAG, "Starting copying bytes from position %02x", it - readBuffer);
-    writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+        LOGD(TAG, "READY FOR NEXT FILE!");
 
-    int chunkNumber, chunksRemain;
-    bool isContinuationFrame = false;
-    for (chunksRemain = INT_MAX; chunksRemain > 1;) {
-        // Sender's upper sequence stays the same as long as we echo
-        // Periodically we send <session> 0B 06, to allow the sender to start a new upper sequence
-
-        // Sender alternates between long and short prefixes (chunk split into two frames)
-
-        // 4 bytes:    0B <session> 00 00
-        //  -- odd frames end here --
-        // 10 bytes:   00 20 03 FF 01 FA 10 01 01 EE (constant string)
-        //  -- very first frame ends here --
-        // 4 bytes:    00 00 00 01 (counts up from 0 first chunk)
-        // 4 bytes:    00 00 00 10 (counts down chunks remaining)
-        // DATA
+        // FIL0
+        ackLoopInClientRole();
+        if (!expectStartsWith({session, 0x03, 0x00, 0x00, 0x00, 0x20})) return false;
+        std::string fileCmdName = std::string(reinterpret_cast<const char *>(readBuffer + 0x42), 4);
+        std::string fileName = std::string(reinterpret_cast<const char *>(readBuffer + 0x4C), 12);
+        File file = FFat.open(("/" + fileName).c_str(), "w", true);
+        // We'll use this later in the RDY0 response
+        uint8_t cmdFil0Seq = readBuffer[0x31];
+        LOGD(TAG, "cmdFil0Seq %02x", cmdFil0Seq);
+        LOGI(TAG, "<< %s saving to %s", fileCmdName.c_str(), fileName.c_str());
+        writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
 
         readFrame();
-        LOGD(TAG, "Chunk frame 1/2");
-        // First frame
-        uint8_t DATA_FRAME[]{session, 0x03, 0x00, 0x00};
-        uint8_t DATA_CHUNK[]{0x00, 0x20, 0x03, 0xFF};
-
-        if (std::equal(readBuffer, readBuffer + 4, std::begin(DATA_FRAME))) {
-            LOGD(TAG, "first4 check out");
+        if (!expectStartsWith({session, 0x03, 0x00, 0x00})) return false;
+        // Find beginning of JPEG file
+        auto begin = readBuffer;
+        auto end = readBuffer + dataLen;
+        constexpr uint8_t marker[] = {0xFF, 0xD8, 0xFF, 0xE0};
+        auto it = std::search(begin, end, std::begin(marker), std::end(marker));
+        if (it == end) {
+            LOGE(TAG, "Expected to find the JPEG start marker");
+            return false;
         }
-        if (std::equal(readBuffer + 4, readBuffer + 8, std::begin(DATA_CHUNK))) {
-            LOGD(TAG, "chunk tag checks out");
-        }
-        //  TODO 8-12 is variant? has some meaning...?  look into this
-        chunkNumber = readBigEndianUint32(readBuffer + 14);
-        chunksRemain = readBigEndianUint32(readBuffer + 18);
-        LOGD(TAG, "Chunk %02d/%02d, %02d remain", chunkNumber, chunkNumber + chunksRemain, chunksRemain);
-        file.write(readBuffer + 22, dataLen - 22);
+        file.write(it, end - it);
+        LOGI(TAG, "Starting copying bytes from position %02x", it - readBuffer);
+        writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
 
-        if ((chunkNumber % 2) == 0) {
-            LOGD(TAG, ">> continue...");
-            uint8_t CONTINUE[]{0x03, session, 0x06};
-            writeFrame(ourPort, makeseq(SEQ_DATA, true, true), CONTINUE);
-        } else {
-            writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
-        }
+        // TODO - make this totally depend on isFinalChunk and byte counting
+        for (chunksRemain = INT_MAX; chunksRemain > 1;) {
+            bool isFinalChunk = false;
 
-        // TODO don't hardcode 2 frames/chunk, determine from framing -- or even seq
-        readFrame();
-        if (dataLen > 0) {
-            LOGD(TAG, "Chunk frame 2/2");
-            // Continuation frame
+            // Sender's upper sequence stays the same as long as we echo
+            // Periodically we send <session> 0B 06, to allow the sender to start a new upper sequence
+
+            // Sender alternates between long and short prefixes (chunk split into two frames)
+
+            // 4 bytes:    0B <session> 00 00
+            //  -- odd frames end here --
+            // 10 bytes:   00 20 03 FF 01 FA 10 01 01 EE (constant string)
+            // 4 bytes:    01 fa 10 01 (encodes number of bytes in the chunk and whether it's the final chunk)
+            //  -- very first frame ends here --
+            // 4 bytes:    00 00 00 01 (counts up from 0 first chunk)
+            // 4 bytes:    00 00 00 10 (counts down chunks remaining)
+            // DATA
+
+            readFrame();
+            LOGD(TAG, "Chunk frame 1/2");
+            // First frame
+            uint8_t DATA_FRAME[]{session, 0x03, 0x00, 0x00};
+            uint8_t DATA_CHUNK[]{0x00, 0x20, 0x03, 0xFF};
+
             if (std::equal(readBuffer, readBuffer + 4, std::begin(DATA_FRAME))) {
                 LOGD(TAG, "first4 check out");
             }
-            // NOTE no protection here for data missing
-            file.write(readBuffer + 4, dataLen - 4);
-        } else {
-            LOGD(TAG, "No continuation frame... might be ok if this is the end frame");
+            if (std::equal(readBuffer + 4, readBuffer + 8, std::begin(DATA_CHUNK))) {
+                LOGD(TAG, "chunk tag checks out");
+            }
+
+            chunkBytesReceived = 0;
+            chunkBytesTotal = readBuffer[9];
+            isFinalChunk = (readBuffer[11] & 0x80) > 0;
+            chunkNumber = readBigEndianUint32(readBuffer + 14);
+            chunksRemain = readBigEndianUint32(readBuffer + 18);
+
+            LOGD(TAG, "Chunk %02d/%02d, %02d remain", chunkNumber, chunkNumber + chunksRemain, chunksRemain);
+            file.write(readBuffer + 22, dataLen - 22);
+
+            // Remember after parsing the frame it is unescaped
+            chunkBytesReceived += (dataLen - 22);
+            LOGD(TAG, "Received %d/%d bytes in chunk, expecting more frames? %s", chunkBytesReceived, chunkBytesTotal,
+                 chunkBytesReceived < chunkBytesTotal ? "Yes" : "No");
+
+            if ((chunkNumber % 2) == 0) {
+                LOGD(TAG, ">> continue...");
+                uint8_t CONTINUE[]{0x03, session, 0x06};
+                writeFrame(ourPort, makeseq(SEQ_DATA, true, true), CONTINUE);
+            } else {
+                writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+            }
+
+            // TODO make expecting more frames dependent on chunkBytesReceived
+            readFrame();
+            if (dataLen > 4) {
+                LOGD(TAG, "Chunk frame 2/2");
+                // Continuation frame
+                if (std::equal(readBuffer, readBuffer + 4, std::begin(DATA_FRAME))) {
+                    LOGD(TAG, "first4 check out");
+                }
+                // NOTE no protection here for data missing
+                file.write(readBuffer + 4, dataLen - 4);
+                chunkBytesReceived += (dataLen - 4);
+                LOGD(TAG, "Received %d/%d bytes in chunk, expecting more frames? %s", chunkBytesReceived,
+                     chunkBytesTotal, chunkBytesReceived < chunkBytesTotal ? "Yes" : "No");
+
+                writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+            } else if (expectAck()) {
+                writeFrame(ourPort, makeseq(SEQ_ACK, false, false));
+                LOGD(TAG, "No continuation frame... might be ok if this is the end frame");
+            } else {
+                LOGE(TAG, "Not sure what to expect here");
+                return false;
+            }
         }
-        writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+
+        file.close();
+
+        // RPL0
+        if (!(readFrame() && expectAck())) return false;
+        uint8_t RPL0_CMD[]{0x03, session, 0x00, 0x00, 0x00, 0x20, 0x03, 0xFF, 0x00, 0x38, 0x10, 0xC1, 0x00, 0x34,
+                           0x58, 0x40,    0x00, 0x00, 0x00, 0x2E, 0x08, 0x00, 0x74, 0x03, 0x00, 0x00, 0x00, 0x00,
+                           0x08, 0x00,    0x74, 0x03, 0x10, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x08, 0x00, cmdFil0Seq,
+                           0x00, 0x01,    0x52, 0x50, 0x4C, 0x30, 0x00, 0x00, 0x00, 0x0E, 0x01, 0x00, 0x00, 0x00,
+                           0x00, 0x00,    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+        std::memcpy(RPL0_CMD + 0x36, fileName.data(), 12);
+        writeFrame(ourPort, makeseq(SEQ_DATA, false, true), RPL0_CMD);
+
+        ackLoopInClientRole();
+        if (expectStartsWith({session, 0x03, 0x01})) {
+            LOGD(TAG, "i++ from watch");
+            writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+        } else {
+            return false;
+        }
     }
-
-    file.close();
-    LOGI(TAG, "I WROTE THE FILE!!!! THIS IS NOT A DRILL!!!");
-
     return true;
 }
 

@@ -34,11 +34,6 @@ void appendStruct(std::vector<uint8_t> vec, T obj) {
     vec.insert(vec.end(), begin, end);
 }
 
-template <size_t N>
-bool startsWith(std::span<const uint8_t> buf, const uint8_t (&lit)[N]) {
-    return buf.size() >= N && std::equal(buf.begin(), buf.begin() + N, lit);
-}
-
 int findIndexOf(std::span<const uint8_t> buf, std::span<const uint8_t> pattern) {
     auto iter = std::search(buf.begin(), buf.end(), pattern.begin(), pattern.end());
     if (iter == buf.end()) return -1;
