@@ -16,6 +16,8 @@ struct Header {
     int32_t chunksLeft;
 };
 
-std::optional<Header> parseHeader(std::span<const uint8_t> data);
+std::optional<Header> parseHeader(std::span<const uint8_t> raw);
+
+std::span<const uint8_t> findJpegRegion(std::span<const uint8_t> raw);
 
 }  // namespace Chunk

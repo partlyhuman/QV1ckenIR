@@ -26,7 +26,6 @@ struct __attribute__((packed)) Timestamp {
 };
 
 static const char *TAG = "Main";
-static const char *DUMP_PATH = "/dump.bin";
 
 const size_t ABORT_AFTER_RETRIES = 50;
 const size_t MAX_IMAGES = 100;
@@ -48,7 +47,6 @@ enum SequenceType {
 };
 
 uint8_t seq_upper = 1, seq_lower = 0;
-SequenceType lastType;
 
 // TODO simplify this, it should really inc lower only when data type, and know the difference between ack and ack loop
 inline uint8_t makeseq(SequenceType type, bool incUpper = false, bool incLower = false) {
@@ -57,10 +55,7 @@ inline uint8_t makeseq(SequenceType type, bool incUpper = false, bool incLower =
     return (seq_upper & 0xf) << 4 | ((type == SEQ_ACK ? 1 : seq_lower) & 0xf);
 }
 
-// Whether we're streaming the transferred data into PSRAM or FAT
-static bool usePsram;
 volatile static bool pendingManualModeToggle;
-
 void IRAM_ATTR onManualModeToggleButton() {
     pendingManualModeToggle = true;
 }
@@ -73,15 +68,7 @@ void setup() {
 
     pinMode(PIN_LED, OUTPUT);
 
-    // Should be a little under 1mb. PSRamFS will use heap if not available, we want to prevent that though
-    usePsram = false;
-#ifdef ENABLE_PSRAM
-    size_t psramSize = MAX_IMAGES * sizeof(Image::Image) + 1024;
-    if (psramInit() && psramSize < ESP.getMaxAllocPsram() && psramSize < ESP.getFreePsram()) {
-        usePsram = PSRamFS.setPartitionSize(psramSize) && PSRamFS.begin(true);
-    }
-#endif
-    LOGD(TAG, "Using %s for temp storage", usePsram ? "PSRAM" : "FFAT");
+    // No PSRAM needed - write JPGs straight to FS
 
     MassStorage::init();
     Image::init();
@@ -616,8 +603,6 @@ bool syncInClientRole() {
     // it.
 
     for (size_t fileCount = 0; true; fileCount++) {
-        size_t chunkBytesReceived;
-
         ackLoopInClientRole();
         if (expectStartsWith({session, 0x03, 0x00, 0x00, 0x00, 0x30})) {
             LOGI(TAG, "Nothing more to receive! We're done.");
@@ -644,98 +629,89 @@ bool syncInClientRole() {
 
         readFrame();
         if (!expectStartsWith({session, 0x03, 0x00, 0x00})) return false;
-        // Find beginning of JPEG file
-        auto begin = readBuffer;
-        auto end = readBuffer + dataLen;
-        constexpr uint8_t JPEG_MARKER[] = {0xFF, 0xD8, 0xFF, 0xE0};
-        auto it = std::search(begin, end, std::begin(JPEG_MARKER), std::end(JPEG_MARKER));
-        if (it == end) {
-            LOGE(TAG, "Expected to find the JPEG start marker");
-            return false;
+
+        auto jpegSpan = Chunk::findJpegRegion(std::span(readBuffer, dataLen));
+        if (jpegSpan.size() > 0) {
+            LOGI(TAG, "Found beginning of JPEG inside chunk");
+            file.write(jpegSpan.data(), jpegSpan.size());
         }
-        file.write(it, end - it);
-        LOGI(TAG, "Starting copying bytes from position %02x", it - readBuffer);
         writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
 
-        // Loop depends on checking if the chunk header says there's no more chunks
-
+        uint8_t SESSION_CHUNK_HEADER[]{session, 0x03, 0x00, 0x00};
         Chunk::Header header;
+
         do {  // LOOP OVER CHUNKS IN FILE
-            readFrame();
-            LOGD(TAG, "Chunk frame 1/2");
-            // First frame
-            uint8_t SESSION_HEADER[]{session, 0x03, 0x00, 0x00};
 
-            if (!expectStartsWith(SESSION_HEADER)) {
-                LOGE(TAG, "Unexpected session header");
-                return false;
-            }
+            size_t frameNum = 0;
+            size_t chunkBytesReceived;
 
-            // Take off session header
-            auto maybeHeader = Chunk::parseHeader(std::span(readBuffer).subspan(4, dataLen - 4));
-            if (!maybeHeader.has_value()) {
-                // TODO try an error status instead
-                return false;
-            }
+            do {  // LOOP OVER FRAMES IN CHUNK
 
-            header = maybeHeader.value();
-            chunkBytesReceived = 0;
-
-            Display::showProgressScreen(header.chunkNumber, header.chunkNumber + header.chunksLeft, fileCount);
-
-            LOGD(TAG, "Chunk %02d/%02d, %02d remain", header.chunkNumber, header.chunkNumber + header.chunksLeft,
-                 header.chunksLeft);
-            size_t headersSize = sizeof(SESSION_HEADER) + Chunk::HEADER_SIZE;
-            size_t bytes = dataLen - headersSize;
-            chunkBytesReceived += bytes;
-            file.write(readBuffer + headersSize, bytes);
-
-            LOGD(TAG, "Received %d/%d bytes in chunk, expecting more frames? %s", chunkBytesReceived, header.chunkSize,
-                 chunkBytesReceived < header.chunkSize ? "Yes" : "No");
-
-            if ((header.chunkNumber % 2) == 0) {
-                LOGD(TAG, ">> continue...");
-                uint8_t CONTINUE[]{0x03, session, 0x06};
-                writeFrame(ourPort, makeseq(SEQ_DATA, true, true), CONTINUE);
-            } else {
-                writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
-            }
-
-            // TODO make expecting more frames dependent on chunkBytesReceived
-            readFrame();
-            if (dataLen > 4) {
-                LOGD(TAG, "Chunk frame 2/2");
-                // Continuation frame
-                if (!expectStartsWith(SESSION_HEADER)) {
+                readFrame();
+                if (!expectStartsWith(SESSION_CHUNK_HEADER)) {
                     LOGE(TAG, "Unexpected session header");
                     return false;
                 }
 
-                headersSize = sizeof(SESSION_HEADER);
-                bytes = dataLen - headersSize;
-                chunkBytesReceived += bytes;
-                file.write(readBuffer + headersSize, bytes);
-                LOGD(TAG, "Received %d/%d bytes in chunk, expecting more frames? %s", chunkBytesReceived,
-                     header.chunkSize, chunkBytesReceived < header.chunkSize ? "Yes" : "No");
+                LOGD(TAG, "Chunk frame %d", frameNum);
+                if (frameNum == 0) {
+                    // CHUNK FIRST FRAME
+                    auto maybeHeader = Chunk::parseHeader(std::span(readBuffer).subspan(4, dataLen - 4));
+                    if (!maybeHeader.has_value()) {
+                        LOGE(TAG, "Chunk header not found");
+                        return false;
+                    }
 
-                writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
-            } else if (expectAck()) {
-                if (chunkBytesReceived < header.chunkSize) {
-                    LOGW(TAG, "No continuation frame, but only received %d/%d bytes in chunk", chunkBytesReceived,
-                         header.chunkSize);
+                    LOGD(TAG, "First frame, parsed chunk header");
+                    header = maybeHeader.value();
+                    chunkBytesReceived = 0;
+
+                    Display::showProgressScreen(header.chunkNumber, header.chunkNumber + header.chunksLeft, fileCount);
+
+                    LOGD(TAG, "Chunk %02d/%02d, %02d remain", header.chunkNumber,
+                         header.chunkNumber + header.chunksLeft, header.chunksLeft);
+                    size_t headersSize = sizeof(SESSION_CHUNK_HEADER) + Chunk::HEADER_SIZE;
+                    size_t bytes = dataLen - headersSize;
+                    chunkBytesReceived += bytes;
+                    file.write(readBuffer + headersSize, bytes);
+
+                    LOGD(TAG, "Received %d/%d bytes in chunk, expecting more frames? %s", chunkBytesReceived,
+                         header.chunkSize, chunkBytesReceived < header.chunkSize ? "Yes" : "No");
                 } else {
-                    LOGD(TAG, "No continuation frame... might be ok if this is the end frame");
+                    // CHUNK CONTINUATION FRAME
+                    if (dataLen <= 4) {
+                        LOGE(TAG, "Expected continuation frame, as %d bytes remain in this chunk",
+                             header.chunkSize - chunkBytesReceived);
+                        return false;
+                    }
+
+                    size_t headersSize = sizeof(SESSION_CHUNK_HEADER);
+                    size_t bytes = dataLen - headersSize;
+                    chunkBytesReceived += bytes;
+                    file.write(readBuffer + headersSize, bytes);
+
+                    LOGD(TAG, "Received %d/%d bytes in chunk, expecting more frames? %s", chunkBytesReceived,
+                         header.chunkSize, chunkBytesReceived < header.chunkSize ? "Yes" : "No");
                 }
-                writeFrame(ourPort, makeseq(SEQ_ACK, false, false));
-            } else {
-                LOGE(TAG, "Not sure what to expect here");
-                return false;
-            }
 
-            // Done chunk
+                // Periodically send "Continue", otherwise normal ACK
+                // arbitrary loop point
+                if (seq % 0xf > 8) {
+                    LOGD(TAG, ">> continue...");
+                    uint8_t CONTINUE[]{0x03, session, 0x06};
+                    writeFrame(ourPort, makeseq(SEQ_DATA, true, true), CONTINUE);
+                } else {
+                    writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
+                }
+
+                frameNum++;
+            } while (chunkBytesReceived < header.chunkSize);  // END LOOP OVER FRAMES IN CHUNK
+
             LOGI(TAG, "Chunk finished=%d chunks left=%d", header.isFinalChunk, header.chunksLeft);
-        } while (!header.isFinalChunk && header.chunksLeft > 0);  // LOOP OVER CHUNKS IN FILE
 
+        } while (!header.isFinalChunk);  // END LOOP OVER CHUNKS IN FILE
+
+        LOGI(TAG, "File '%s' done!", fileName.c_str());
         file.close();
 
         // RPL0

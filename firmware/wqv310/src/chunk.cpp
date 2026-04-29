@@ -46,4 +46,14 @@ std::optional<Header> parseHeader(std::span<const uint8_t> raw) {
     return h;
 }
 
+std::span<const uint8_t> findJpegRegion(std::span<const uint8_t> raw) {
+    constexpr uint8_t JPEG_MARKER[] = {0xFF, 0xD8, 0xFF, 0xE0};
+    auto it = std::search(std::begin(raw), std::end(raw), std::begin(JPEG_MARKER), std::end(JPEG_MARKER));
+    if (it == raw.end()) {
+        LOGE(TAG, "Expected to find the JPEG start marker");
+        return {};
+    }
+    return std::span<const uint8_t>(it, raw.end());
+}
+
 }  // namespace Chunk
