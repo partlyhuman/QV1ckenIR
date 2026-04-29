@@ -1,11 +1,10 @@
-#if WQV == 310
+#include "frame.h"
 
 #include <array>
 #include <span>
 
 #include "config.h"
 #include "crc16.h"
-#include "frame.h"
 #include "irda_hal.h"
 #include "log.h"
 
@@ -144,5 +143,3 @@ bool parseFrame(uint8_t *buf, size_t len, size_t &outLen, uint8_t &addr, uint8_t
 }
 
 };  // namespace Frame
-
-#endif

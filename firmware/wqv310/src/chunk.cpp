@@ -26,7 +26,9 @@ std::optional<Header> parseHeader(std::span<const uint8_t> raw) {
     // 4 bytes:    00 20 03 FF
     // 4 bytes:    AA BB 10 CC (chunk header)
     //                      CC - 41 = initial, 01 = chunk, 81 = final
-    //             AA BB - observed 01 FA most, 00 B8 ending
+    //             AA BB - currently unknown purpose: observed 01 FA, 00 B8
+
+    LOGV(TAG, "Unknown purpose bytes in header: %02x%02x", raw[5], raw[6]);
 
     Header h{};
     h.isFinalChunk = (raw[7] & 0x80) != 0;

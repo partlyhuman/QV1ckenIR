@@ -9,21 +9,15 @@
 #include "image.h"
 #include "irda_hal.h"
 #include "log.h"
+#include "meta.h"
 #include "msc.h"
 #include "stl_helpers.h"
 #ifdef ENABLE_PSRAM
 #include "PSRamFS.h"
 #endif
 
+// TODO undo this
 using namespace Frame;
-
-struct __attribute__((packed)) Timestamp {
-    uint8_t year2k;
-    uint8_t month;
-    uint8_t day;
-    uint8_t hour;
-    uint8_t minute;
-};
 
 static const char *TAG = "Main";
 
@@ -443,13 +437,13 @@ void sendTime() {
     std::array<uint8_t, 5> SEND_TIME{0x03, 0x07, 0x00, 0x00, 0x07};
 
     std::vector<uint8_t> send;
-    send.reserve(SEND_TIME.size() + sizeof(Timestamp));
+    send.reserve(SEND_TIME.size() + sizeof(Meta::Timestamp));
     send.insert(send.begin(), SEND_TIME.begin(), SEND_TIME.end());
 
-    Timestamp time = {.year2k = 20, .month = 1, .day = 30, .hour = 12, .minute = 30};
+    Meta::Timestamp time = {.year2k = 20, .month = 1, .day = 30, .hour = 12, .minute = 30};
     // appendStruct(send, time);
     auto *begin = reinterpret_cast<const uint8_t *>(&time);
-    auto *end = begin + sizeof(Timestamp);
+    auto *end = begin + sizeof(Meta::Timestamp);
     send.insert(send.end(), begin, end);
 
     writeFrame(ourPort, 0xBE, send, 5);
@@ -622,7 +616,7 @@ bool syncInClientRole() {
         std::string fileCmdName = std::string(reinterpret_cast<const char *>(readBuffer + 0x42), 4);
         std::string fileName = std::string(reinterpret_cast<const char *>(readBuffer + 0x4C), 12);
         LOGI(TAG, "<< %s saving to %s", fileCmdName.c_str(), fileName.c_str());
-        File file = FFat.open(("/" + fileName + ".jpg").c_str(), "w", true);
+        File file = FFat.open(("/" + fileName).c_str(), "w", true);
         // We'll use this later in the RDY0 response
         uint8_t cmdFil0Seq = readBuffer[0x31];
         writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
@@ -713,6 +707,8 @@ bool syncInClientRole() {
 
         LOGI(TAG, "File '%s' done!", fileName.c_str());
         file.close();
+
+        Meta::postProcess(fileName);
 
         // RPL0
         if (!(readFrame() && expectAck())) return false;
