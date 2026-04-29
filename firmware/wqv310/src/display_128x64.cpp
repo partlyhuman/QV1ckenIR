@@ -141,7 +141,7 @@ void showIdleScreen() {
     display.setTextColor(0);
     display.setFont(&_1980v23P04_16);
     // display.setCursor(93, 62);
-    // display.print("WQV-1");
+    // display.print("WQV-3");
 
     // Layer 2 copy
     display.setCursor(1, 62);
@@ -176,7 +176,7 @@ void showConnectingScreen(int offset) {
     display.setTextColor(0);
     display.setFont(&_1980v23P04_16);
     display.setCursor(93, 62);
-    display.print("WQV-1");
+    display.print("WQV-3");
 
     display.setCursor(1, 62);
     display.print("CONNECTING");
@@ -184,7 +184,7 @@ void showConnectingScreen(int offset) {
     display.display();
 }
 
-void showProgressScreen(size_t bytes, size_t totalBytes, size_t bytesPerImage, const char* step) {
+void showProgressScreen(size_t chunkNumber, size_t totalChunks, size_t imageNumber, const char* step) {
     screen = 2;
     static uint8_t frame = 0;
 
@@ -199,7 +199,7 @@ void showProgressScreen(size_t bytes, size_t totalBytes, size_t bytesPerImage, c
     display.setTextWrap(false);
     display.setFont(&_1980v23P04_16);
     display.setCursor(93, 62);
-    display.print("WQV-1");
+    display.print("WQV-3");
 
     // status_downloading
     display.setCursor(1, 62);
@@ -209,20 +209,20 @@ void showProgressScreen(size_t bytes, size_t totalBytes, size_t bytesPerImage, c
     display.drawRect(1, 38, 125, 9, 1);
 
     // bar_fill
-    display.fillRect(3, 40, bytes * 122 / totalBytes, 5, 1);
+    display.fillRect(3, 40, chunkNumber * 122 / totalChunks, 5, 1);
 
     // percent
     display.setTextColor(1);
     display.setCursor(1, 35);
-    display.printf("%0.0f%%", 100.0f * bytes / totalBytes);
+    display.printf("%0.0f%%", 100.0f * chunkNumber / totalChunks);
 
     // photo_count
     display.setFont(&Nokia_Cellphone_FC_8);
     display.setCursor(46, 14);
-    display.printf("Photo %d/%d", (int)ceil((float)bytes / bytesPerImage), totalBytes / bytesPerImage);
+    display.printf("Photo %d", imageNumber + 1);
 
     // frame0
-    display.drawBitmap(23, 4, frames[(frame++ / 10) % 5], 14, 14, 1);
+    display.drawBitmap(23, 4, frames[(frame++) % 5], 14, 14, 1);
 
     display.display();
 }
@@ -255,7 +255,7 @@ void showMountedScreen() {
     display.setTextColor(0);
     display.setFont(&_1980v23P04_16);
     // display.setCursor(93, 62);
-    // display.print("WQV-1");
+    // display.print("WQV-3");
 
     // Layer 2 copy
     display.setCursor(1, 62);

@@ -167,10 +167,6 @@ bool readFrame(unsigned long timeout = 1000) {
         LOGW(TAG, "Malformed");
         return false;
     }
-    if (seq == 0x53) {
-        LOGE(TAG, "Error status");
-        return false;
-    }
     return true;
 }
 
@@ -193,6 +189,8 @@ bool openSession() {
     }
 
     if (!dataLen) return false;
+
+    Display::showConnectingScreen(0);
 
     // What watch is connecting?
     // 01193666 BED60300 00010500 84040043 4153494F 20574943 20323431 322F4952
@@ -225,6 +223,8 @@ bool openSession() {
     if (!readFrame()) return false;
     LOGI(TAG, "Watch accepted SIP port %02x and replied with seq %02x", watchPort, seq);
 
+    Display::showConnectingScreen(1);
+
     // Now we initialize the sequence state machine
     seq_upper = 1;
     seq_lower = 0;
@@ -256,6 +256,8 @@ bool openSession() {
     // expect ack
     if (!readFrame()) return false;
 
+    Display::showConnectingScreen(2);
+
     // TODO we can't reverse roles after going into this state?
     // // Is 0x7d sometimes there and sometimes not??? // 0x7d is escape so this can't be right without a subsequent
     // byte const uint8_t SESSION_INIT_END[]{0x80, 0x03, 0x01, 0x00, 0x7D}; writeFrame(ourPort, makeseq(SEQ_DATA, true,
@@ -266,13 +268,16 @@ bool openSession() {
 
 void ackLoopInClientRole(unsigned long timeout = 2000) {
     while (true) {
-        if (!readFrame(timeout)) {
+        bool ok = readFrame(timeout);
+
+        if (ok && seq == 0x53) {
+            LOGE(TAG, "Error status");
             return;
         }
 
         // LOGD(TAG, "Is this ack? port=%d watchport=%d dataLen=%d seq=%d seq&f=%d", port, watchPort, dataLen, seq,
         //      (seq & 0xf));
-        if (/*port == watchPort &&*/ dataLen == 0 && (seq & 0xf) == 1) {
+        if (!ok || (port == watchPort && dataLen == 0 && (seq & 0xf) == 1)) {
             // LOGD(TAG, "yeah, it's ack, we'll ack now");
             // ACK, we'll reply ACK
             writeFrame(ourPort, makeseq(SEQ_ACK, false, false));
@@ -289,19 +294,19 @@ bool openSessionInClientRole() {
     seq_lower = 0;
     seq_upper = 1;
 
-    // < 0x3F 0x01193666BEFFFFFFFF010000
-    // < 0x3F 0x01193666BEFFFFFFFF010100
-    // < 0x3F 0x01193666BEFFFFFFFF010200
-    // < 0x3F 0x01193666BEFFFFFFFF010300
-    // < 0x3F 0x01193666BEFFFFFFFF010400
-    // < 0x3F 0x01193666BEFFFFFFFF010500
+    Display::showConnectingScreen(3);
+
+    // < 0x3F 0x01193666BEFFFFFFFF010000...
     // give first one a long time to arrive
     readFrame(5000);
-    for (int i = 1; dataLen > 0 && readBuffer[0] == 0x01 && readBuffer[1] == 0x19 && i < 6; i++) {
-        // We should receive 6 IRDA hello frames
-        readFrame(1500);
-    }
-    LOGD(TAG, "That should be all the IRDA stack hello frames");
+
+    // for (int i = 1; dataLen > 0 && readBuffer[0] == 0x01 && readBuffer[1] == 0x19 && i < 6; i++) {
+    //     // We should receive 6 IRDA hello frames
+    //     readFrame(1500);
+    // }
+    // LOGD(TAG, "That should be all the IRDA stack hello frames");
+
+    Display::showConnectingScreen(4);
 
     // > 0xBF 0x01(0E030000)193666BE01050084250057494E444F5753585000 "WINDOWS XP"
     // We replace that with QV1-BLINK
@@ -311,8 +316,21 @@ bool openSessionInClientRole() {
         IRDA_HI[i] = esp_random() & ~0b11000001;
     }
     writeFrame(ourPort, 0xbf, IRDA_HI);
-    // < 0x3F 0x01193666BEFFFFFFFF01FF008C0400434153494F2057494320323431312F4952 ("casio wic...")
-    readFrame();
+
+    do {
+        // < 0x3F 0x01193666BEFFFFFFFF010100
+        // < 0x3F 0x01193666BEFFFFFFFF010200
+        // < 0x3F 0x01193666BEFFFFFFFF010300
+        // < 0x3F 0x01193666BEFFFFFFFF010400
+        // < 0x3F 0x01193666BEFFFFFFFF010500
+        readFrame();
+
+        // < 0x3F 0x01193666BEFFFFFFFF01FF008C0400434153494F2057494320323431312F4952 ("casio wic...")
+    } while (!expectStartsWith({0x01, 0x19, 0x36, 0x66, 0xBE, 0xFF, 0xFF, 0xFF, 0xFF, 0x01, 0xFF}));
+
+    std::string watchIdentString(reinterpret_cast<const char *>(readBuffer + 15), 17);
+    LOGI(TAG, "IRDA stack host ident '%s'", watchIdentString.c_str());
+
     // < 0x93 0x193666BE0E030000(70)01013F82010183013F8401018501808601030801FF
     readFrame();
     if (readBuffer[0] == 0x19) {
@@ -376,6 +394,8 @@ bool openSessionInClientRole() {
     writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
 
     // loop while received frame is ack
+
+    Display::showConnectingScreen(5);
 
     LOGD(TAG, "Done opening session in client role");
     return true;
@@ -507,10 +527,13 @@ bool syncInClientRole() {
     std::vector<uint8_t> response;
     std::span<uint8_t> cmdSpan;
 
+    // NOTE it's important to only do work when the watch is waiting for a reply
+    readFrame();
     LOGI(TAG, "Formatting FatFS...");
     FFat.end();
     FFat.format();
     FFat.begin();
+    writeFrame(ourPort, makeseq(SEQ_ACK, false, false));
 
     ackLoopInClientRole();
     // < 0x9C
@@ -580,7 +603,7 @@ bool syncInClientRole() {
     // RCMD
     // < 0xF8
     // 0x09030000002003FF003E107DE1003A580000000034080074031000000008007403000000000008000800820002434D4430000000060000000100405748543000000006010052434D44
-    ackLoopInClientRole(999);
+    ackLoopInClientRole();
     LOGI(TAG, "<< %s (expecting RCMD)", getCmdName().c_str());
     // RCMD / -0x0D / 7 bytes extra data
     cmdSpan = std::span(readBuffer).subspan(0, 44);
@@ -677,6 +700,8 @@ bool syncInClientRole() {
             chunkNumber = readBigEndianUint32(readBuffer + 14);
             chunksRemain = readBigEndianUint32(readBuffer + 18);
 
+            Display::showProgressScreen(chunkNumber, chunkNumber + chunksRemain - 1, fileCount);
+
             LOGD(TAG, "Chunk %02d/%02d, %02d remain", chunkNumber, chunkNumber + chunksRemain, chunksRemain);
             file.write(readBuffer + 22, dataLen - 22);
 
@@ -710,8 +735,13 @@ bool syncInClientRole() {
 
                 writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
             } else if (expectAck()) {
+                if (chunkBytesReceived < chunkBytesTotal) {
+                    LOGW(TAG, "No continuation frame, but only received %d/%d bytes in chunk", chunkBytesReceived,
+                         chunkBytesTotal);
+                } else {
+                    LOGD(TAG, "No continuation frame... might be ok if this is the end frame");
+                }
                 writeFrame(ourPort, makeseq(SEQ_ACK, false, false));
-                LOGD(TAG, "No continuation frame... might be ok if this is the end frame");
             } else {
                 LOGE(TAG, "Not sure what to expect here");
                 return false;

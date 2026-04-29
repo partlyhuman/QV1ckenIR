@@ -7,7 +7,7 @@ bool init();
 void dim(bool dim);
 void showIdleScreen();
 void showConnectingScreen(int offset = 0);
-void showProgressScreen(size_t bytes, size_t totalBytes, size_t bytesPerImage, const char* label = "DOWNLOADING");
+void showProgressScreen(size_t chunkNumber, size_t totalChunks, size_t imageNumber, const char* step = "DOWNLOADING");
 void showMountedScreen();
 
 }  // namespace Display
