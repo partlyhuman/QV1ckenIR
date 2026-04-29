@@ -38,7 +38,7 @@ The PCB, case, and firmware in this repository go together as pictured here.
 | U3 | TFDU4101-TR3 | https://www.digikey.com/short/nrdh27mb |
 
 
-R1 is used to save power to the IR LED. The TFDU4101 has built-in LED resistors so this can be 0R for maximum TX power. R2,C1 are a low-pass filter for the TFDU4101 logic. C1 is recommended 0.1uF or greater, but one or both can be bridged/omitted. Recommended values above from the TFDU4101 datasheet.
+R1 is used to save power to the IR LED. The TFDU4101 has built-in LED resistors so this can be 0R for maximum TX power. There is a lot of good info on sample circuits and component values in the [TFDU4101 datasheet (PDF)](https://www.vishay.com/docs/81288/tfdu4101.pdf)
 
 ### PCB
 
