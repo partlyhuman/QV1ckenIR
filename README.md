@@ -29,9 +29,10 @@ The PCB, case, and firmware in this repository go together as pictured here.
 
 | Reference | Value | Details |
 |----|----|----|
-| C1 | 4.7u | 0805 Capacitor (optional) |
-| R1 | 0R | 0805 Resistor (optional) |
-| R2 | 47R | 0805 Resistor (optional) |
+| R1 | 0-20R | 0805 Resistor |
+| C1 | 1uF | 0805 Capacitor |
+| C2 | 1uF | 0805 Capacitor |
+| C3 | 0.1uF | 0805 Capacitor |
 | U1 | ESP32-S3 Super Micro | https://www.aliexpress.com/item/1005007523988592.html |
 | U2 | SSD1306_OLED_128x64 | https://www.aliexpress.com/item/1005006141235306.html (Yellow Blue) |
 | U3 | TFDU4101-TR3 | https://www.digikey.com/short/nrdh27mb |
