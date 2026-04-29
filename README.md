@@ -1,8 +1,12 @@
-# QVIckenIR
-(is that a cool name?) A Casio WQV-1 USB Sync Dongle
+# WQV Blink
+#### A Casio WQV-1 USB Sync Dongle
 
-This is an easy-to-use, self-contained device that retrieves photos from the extremely cool 2000-era [Casio WQV-1 camera watch](https://www.casio.com/us/watches/50th/Heritage/2000s/).
+This is an easy-to-use, self-contained device that retrieves photos from the series of extremely cool 2000-era [Casio WQV camera watches](https://www.casio.com/us/watches/50th/Heritage/2000s/).
 This project would not be possible without the reverse engineering work of [Marcus Gröber](https://www.mgroeber.de/).
+
+## Manual
+
+See the [wiki](https://github.com/partlyhuman/wqv-blink/wiki) for all instructions!
 
 ## Purchase
 
@@ -12,17 +16,8 @@ Pre-assembled devices ars available in limited quantities on my [Ko-Fi shop](htt
 
 * WQV-1 ✅
 * WQV-2 ✅
-* WQV-3 🔜
+* WQV-3 🔥 Proof of concept done! Coming very soon!
 * WQV-10 🔜
-
-## Usage
-
-1. Plug in the device to your computer via USB
-2. Following the instructions on the screen, enter PC sync mode on the watch
-3. Aim the watch at the IR transciever
-4. The screen will show download progress
-5. Once completed, the device will show on your computer as a USB drive
-6. Enjoy your photos!
 
 ## PCB Build
 
@@ -38,8 +33,9 @@ The PCB, case, and firmware in this repository go together as pictured here.
 | R1 | 0R | 0805 Resistor (optional) |
 | R2 | 47R | 0805 Resistor (optional) |
 | U1 | ESP32-S3 Super Micro | https://www.aliexpress.com/item/1005007523988592.html |
-| U2 | SSD1306_OLED_128x64 | https://www.aliexpress.com/item/1005007883712377.html |
+| U2 | SSD1306_OLED_128x64 | https://www.aliexpress.com/item/1005006141235306.html (Yellow Blue) |
 | U3 | TFDU4101-TR3 | https://www.digikey.com/short/nrdh27mb |
+
 
 R1 is used to save power to the IR LED. The TFDU4101 has built-in LED resistors so this can be 0R for maximum TX power. R2,C1 are a low-pass filter for the TFDU4101 logic. C1 is recommended 0.1uF or greater, but one or both can be bridged/omitted. Recommended values above from the TFDU4101 datasheet.
 
