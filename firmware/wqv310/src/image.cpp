@@ -1,183 +1,161 @@
 #include "image.h"
 
 #include <FFat.h>
+#include <PSRamFS.h>
 
+#include <cstring>
 #include <ctime>
-#include <string>
-#include <unordered_map>
 
-#include "display.h"
 #include "log.h"
-
-// Must define this before including stb_image_write
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
-
-// Which metadata format/s should we use? Feel free to enable multiple or none.
-#define META_TITLE_IFNOTBLANK_FORMAT
-#undef META_INI_FORMAT
-#undef META_JSON_FORMAT
-// Which image format/s should we use? Feel free to enable multiple.
-#define IMAGE_PNG_FORMAT
-#undef IMAGE_JPG_FORMAT
-#undef IMAGE_BMP_FORMAT
+#include "types.h"
 
 namespace Image {
 
-static const char *TAG = "Image";
-static uint8_t expanded[W * H];
-static std::unordered_map<std::string, size_t> timestampCounts;
+const static char *TAG = "Meta";
 
-bool init() {
-    return true;
-}
-
-time_t setSystemTime(const Image *img) {
+time_t timestampToTime(const Timestamp src) {
     tm t{};
-    t.tm_year = (2000 + img->year_minus_2000) - 1900;
-    t.tm_mon = img->month - 1;
-    t.tm_mday = img->day;
-    t.tm_hour = img->hour;
-    t.tm_min = img->minute;
+    t.tm_year = (2000 + src.year2k) - 1900;
+    t.tm_mon = src.month - 1;
+    t.tm_mday = src.day;
+    t.tm_hour = src.hour;
+    t.tm_min = src.minute;
     t.tm_isdst = 0;
     time_t time = mktime(&t);
-
-    timeval epoch = {time, 0};
-    settimeofday((const timeval *)&epoch, 0);
     return time;
 }
 
-static inline std::string pad2(int v) {
-    return v < 10 ? "0" + std::to_string(v) : std::to_string(v);
+void setSystemTime(const time_t time) {
+    timeval epoch = {time, 0};
+    settimeofday((const timeval *)&epoch, 0);
 }
 
-void stbi_write_cb(void *context, void *data, int size) {
-    ((File *)context)->write((uint8_t *)data, size);
+std::string trimTrailingSpaces(std::string src) {
+    if (src.find_first_not_of(' ') == std::string::npos) return "";
+    return src.substr(0, src.find_last_not_of(' ') + 1);
 }
 
-bool save(const Image *img) {
-    File f;
+std::pair<std::string, Timestamp> getMetaFromJpegMarker(fs::File src) {
+    try {
+        // Let's make things easy on ourselves and assume the marker is in the first 512 bytes of the file
+        char headerBuffer[512];
+        if (!src) throw std::runtime_error("Couldn't find file");
+        src.seek(0);
+        size_t bytesRead = src.readBytes(headerBuffer, sizeof(headerBuffer));
+        src.seek(0);
 
-    // Convert Casio pixel data to 8bpp 1-channel grayscale image
-    for (int i = 0; i < W * H; i++) {
-        // two pixels stored per byte, in 2 nybbles
-        uint8_t b = img->pixel[i / 2];
-        uint8_t pixel = (i % 2 == 0) ? b & 0xf : b >> 4;
-        // 0 is white (reverse of normal), expand 4 bits to 0-255 (15 * 17 = 255)
-        expanded[i] = 255 - pixel * 17;
+        std::span header(headerBuffer, headerBuffer + bytesRead);
+        auto iter = header.begin();
+
+        if (iter[0] != 0xff || iter[1] != 0xd8) throw std::runtime_error("Invalid SOI");
+        iter += 2;
+
+        // Make sure we at least have enough to read the marker
+        while ((iter + 4) < header.end()) {
+            if (iter[0] != 0xff) throw std::runtime_error("Expected 0xff in marker");
+            uint8_t marker = iter[1];
+            iter += 2;
+
+            // len includes the bytes themselves, but we don't want to consume them
+            uint16_t len = (iter[0] << 8) | iter[1];
+            LOGV(TAG, "Encountered marker %02x of length %d", marker, len);
+            if (marker != 0xe2) {
+                iter += len;
+                continue;
+            }
+
+            LOGD(TAG, "Found APP2 marker, extracting metadata");
+            // consume the length too, we want to point to the data
+            const char *payload = header.data() + (iter - header.begin()) + 2;
+            size_t payloadLen = len - 2;
+
+            if (payloadLen < sizeof(Timestamp)) throw std::runtime_error("APP2 marker not big enough for timestamp");
+
+            size_t strLen = payloadLen - sizeof(Timestamp);
+            Timestamp timestamp;
+            std::memcpy(&timestamp, payload + strLen, sizeof(Timestamp));
+
+            std::string title;
+            bool isAscii = std::all_of(payload, payload + strLen, [](char b) { return b <= 0x7F; });
+            if (isAscii) {
+                title = trimTrailingSpaces(std::string(payload, strLen));
+            }
+            return std::pair(title, timestamp);
+        }
+
+        LOGE(TAG, "Couldn't find APP2 marker in JPEG, no metadata");
+
+    } catch (std::exception &e) {
+        LOGE(TAG, "%s", e.what());
     }
+    return {};
+}
 
-    // Filenames need to start with / and the base path of /ffat is transparently handled by FFat
-    std::string basepath, filename;
+bool copyRename(fs::File src, std::string destPath, size_t size) {
+    auto startTime = millis();
 
-    // try to set timestamp when writing file
-    time_t time = setSystemTime(img);
+    File dst = FFat.open(destPath.c_str(), "w");
+    if (!dst) return false;
 
-    // File naming strategies:
-    // - count: simple, short filenames, will always collide with multiple syncs. could persist last count
-    // static int count = 0;
-    // basepath = pad2(++count);
-    // - including whole date and time, plus count: legible, no collisions, but long
-    // basepath = std::to_string(img->month) + "-" + std::to_string(img->day) + "-" +
-    //            std::to_string(2000 + img->year_minus_2000) + "_" + pad2(img->hour) + "-" + pad2(img->minute);
-    // - just YYYYMMDD, plus count
-    basepath = std::to_string(2000 + img->year_minus_2000) + pad2(img->month) + pad2(img->day);
-    // - unix style timestamp, plus count: shorter, no collisions, not very legible
-    // basepath = std::to_string(time);
+    // preallocate
+    // size_t size = src.size(); // doesn't work on PSRAMFS, use passed size
+    LOGD(TAG, "Preallocating copied file to %d bytes", size);
+    dst.seek(size - 1);
+    dst.write((uint8_t)0);
+    dst.seek(0);
 
-    // try to only set count with overlapping timestamps
-    int count = timestampCounts[basepath]++;
+    // Buffered copy
+    src.seek(0);
+    static uint8_t buffer[1024];
+    while (true) {
+        size_t n = src.read(buffer, sizeof(buffer));
+        if (n == 0) break;
 
-    basepath = "/WQV_" + basepath;
-    if (count) basepath += "_" + std::to_string(count);
-
-#ifdef IMAGE_PNG_FORMAT
-    filename = basepath + ".png";
-    LOGI(TAG, "Writing image to %s...", filename.c_str());
-    if ((f = FFat.open(filename.c_str(), FILE_WRITE, true))) {
-        stbi_write_png_to_func(stbi_write_cb, &f, W, H, 1, expanded, W);
-        f.close();
-    }
-#endif
-#ifdef IMAGE_JPG_FORMAT
-    filename = basepath + ".jpg";
-    LOGI(TAG, "Writing image to %s...", filename.c_str());
-    if ((f = FFat.open(filename.c_str(), FILE_WRITE, true))) {
-        stbi_write_jpg_to_func(stbi_write_cb, &f, W, H, 1, expanded, 90);
-        f.close();
-    }
-#endif
-#ifdef IMAGE_BMP_FORMAT
-    filename = basepath + ".bmp";
-    LOGI(TAG, "Writing image to %s...", filename.c_str());
-    if ((f = FFat.open(filename.c_str(), FILE_WRITE, true))) {
-        stbi_write_bmp_to_func(stbi_write_cb, &f, W, H, 1, expanded);
-        f.close();
-    }
-#endif
-
-// Write meta info
-#ifdef META_TITLE_IFNOTBLANK_FORMAT
-    std::string title(img->name, sizeof(Image::name));
-    if (title.find_first_not_of(' ') != std::string::npos) {
-        f = FFat.open((basepath + ".txt").c_str(), FILE_WRITE, true);
-        if (f) {
-            title = title.substr(0, title.find_last_not_of(' ') + 1);
-            f.print(title.c_str());
-            f.close();
+        size_t written = dst.write(buffer, n);
+        if (written != n) {
+            LOGE(TAG, "Write error");
+            dst.close();
+            return false;
         }
     }
-#endif
-#ifdef META_INI_FORMAT
-    f = FFat.open((basepath + ".txt").c_str(), FILE_WRITE, true);
-    if (f) {
-        f.printf("date = %04d-%02d-%02dT%02d:%02d\n", 2000 + img->year_minus_2000, img->month, img->day, img->hour,
-                 img->minute);
-        f.print("title = ");
-        f.write((uint8_t *)img->name, sizeof(Image::name));
-        f.print("\n");
-        f.flush();
-        f.close();
-    }
-#endif
-#ifdef META_JSON_FORMAT
-    f = FFat.open((basepath + ".json").c_str(), FILE_WRITE, true);
-    if (f) {
-        f.printf("{\n\t\"date\": \"%04d-%02d-%02dT%02d:%02d\",", 2000 + img->year_minus_2000, img->month, img->day,
-                 img->hour, img->minute);
-        f.print("\n\t\"title\": \"");
-        f.write((uint8_t *)img->name, sizeof(Image::name));
-        f.print("\"\n}\n");
-        f.flush();
-        f.close();
-    }
-#endif
 
-    LOGI(TAG, "After writing: %d/%d total %d", FFat.usedBytes(), FFat.freeBytes(), FFat.totalBytes());
+    dst.close();
+
+    LOGD(TAG, "Copied file in %d ms", millis() - startTime);
 
     return true;
 }
 
-void exportImagesFromDump(File &dump) {
-    if (!dump) {
-        LOGE(TAG, "No file!");
-        return;
-    }
-    timestampCounts.clear();
-    size_t count = dump.size() / sizeof(Image);
-    dump.seek(0);
-    // We'll reuse a single Image, but we want it on the heap, it's big
-    Image *img = new Image{};
-    for (size_t i = 0; i < count; i++) {
-        Display::showProgressScreen(i, count, 1, "CONVERTING");
-        LOGD(TAG, "Reading out image %d/%d", i, count);
-        dump.readBytes(reinterpret_cast<char *>(img), sizeof(Image));
-        save(img);
-    }
-    delete img;
+void postProcess(std::string fileName, size_t fileSize) {
+    std::string dir = "/";
 
-    // Forced 100% screen
-    Display::showProgressScreen(9999, 10000, 10000 / count, "CONVERTING");
+    // Reopen in read mode, I don't think PSRAMFS handles RW mode, but that's fine
+    fs::File src = PSRamFS.open((dir + fileName).c_str(), "r");
+    if (!src) return;
+
+    auto meta = getMetaFromJpegMarker(src);
+
+    time_t time = timestampToTime(meta.second);
+    setSystemTime(time);
+
+    LOGI(TAG, "File %s has metadata time=%s title='%s'", fileName.c_str(), std::ctime(&time), meta.first.c_str());
+
+    // TODO make a new filename using the timestamp, adapt old Image.cpp method
+    std::string base = fileName.substr(0, fileName.size() - 4);
+
+    if (meta.first.size() > 0) {
+        auto file = FFat.open((dir + base + ".txt").c_str(), "w", true);
+        file.println(meta.first.c_str());
+        file.close();
+    }
+
+    if (copyRename(src, dir + base + ".jpg", fileSize)) {
+        src.close();
+        LOGD(TAG, "Copied to flash, removing PSRAM copy");
+        PSRamFS.remove((dir + fileName).c_str());
+    } else {
+        src.close();
+    }
 }
 
 }  // namespace Image

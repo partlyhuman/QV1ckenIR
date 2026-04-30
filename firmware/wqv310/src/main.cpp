@@ -10,9 +10,9 @@
 #include "image.h"
 #include "irda_hal.h"
 #include "log.h"
-#include "meta.h"
 #include "msc.h"
 #include "stl_helpers.h"
+#include "types.h"
 
 // TODO undo this
 using namespace Frame;
@@ -62,7 +62,6 @@ void setup() {
 
     PSRamFS.begin(true);
     MassStorage::init();
-    Image::init();
     Display::init();
 
     // Button manually toggles between Sync/USB (IR/MSC) mode
@@ -434,13 +433,13 @@ void sendTime() {
     std::array<uint8_t, 5> SEND_TIME{0x03, 0x07, 0x00, 0x00, 0x07};
 
     std::vector<uint8_t> send;
-    send.reserve(SEND_TIME.size() + sizeof(Meta::Timestamp));
+    send.reserve(SEND_TIME.size() + sizeof(Timestamp));
     send.insert(send.begin(), SEND_TIME.begin(), SEND_TIME.end());
 
-    Meta::Timestamp time = {.year2k = 20, .month = 1, .day = 30, .hour = 12, .minute = 30};
+    Timestamp time = {.year2k = 20, .month = 1, .day = 30, .hour = 12, .minute = 30};
     // appendStruct(send, time);
     auto *begin = reinterpret_cast<const uint8_t *>(&time);
-    auto *end = begin + sizeof(Meta::Timestamp);
+    auto *end = begin + sizeof(Timestamp);
     send.insert(send.end(), begin, end);
 
     writeFrame(ourPort, 0xBE, send, 5);
@@ -709,7 +708,7 @@ bool syncInClientRole() {
         LOGI(TAG, "File '%s' done!", fileName.c_str());
         file.close();
 
-        Meta::postProcess(fileName, fileSize);
+        Image::postProcess(fileName, fileSize);
 
         // RPL0
         if (!(readFrame() && expectAck())) return false;
