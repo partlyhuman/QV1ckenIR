@@ -1,9 +1,5 @@
 #pragma once
 
-#ifndef WQV
-#error "Need to define WQV variant (12 or 310)"
-#endif
-
 #ifndef BAUDRATE
 #define BAUDRATE 9600
 #endif

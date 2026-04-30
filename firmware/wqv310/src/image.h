@@ -8,8 +8,7 @@
 
 namespace Image {
 
-std::string trimTrailingSpaces(std::string src);
-
+void init();
 void postProcess(std::string fileName, size_t fileSize);
 
 }  // namespace Image

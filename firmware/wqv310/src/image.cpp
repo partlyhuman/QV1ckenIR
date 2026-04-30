@@ -5,13 +5,19 @@
 
 #include <cstring>
 #include <ctime>
+#include <unordered_map>
 
 #include "log.h"
 #include "types.h"
 
 namespace Image {
 
-const static char *TAG = "Meta";
+const static char *TAG = "Image";
+static std::unordered_map<std::string, size_t> timestampCounts;
+
+void init() {
+    timestampCounts.clear();
+}
 
 time_t timestampToTime(const Timestamp src) {
     tm t{};
@@ -91,8 +97,11 @@ std::pair<std::string, Timestamp> getMetaFromJpegMarker(fs::File src) {
     return {};
 }
 
-bool copyRename(fs::File src, std::string destPath, size_t size) {
+bool saveToFlash(fs::File src, std::string destPath, size_t size) {
     auto startTime = millis();
+    // Keep in mind most files are ~4kb
+    const size_t COPY_BUFFER_SIZE = 1024;
+    static uint8_t buffer[COPY_BUFFER_SIZE];
 
     File dst = FFat.open(destPath.c_str(), "w");
     if (!dst) return false;
@@ -106,7 +115,7 @@ bool copyRename(fs::File src, std::string destPath, size_t size) {
 
     // Buffered copy
     src.seek(0);
-    static uint8_t buffer[1024];
+
     while (true) {
         size_t n = src.read(buffer, sizeof(buffer));
         if (n == 0) break;
@@ -126,33 +135,60 @@ bool copyRename(fs::File src, std::string destPath, size_t size) {
     return true;
 }
 
+static inline std::string pad2(int v) {
+    return v < 10 ? "0" + std::to_string(v) : std::to_string(v);
+}
+
+std::string getBaseFilename(const Timestamp t) {
+    std::string basepath;
+    // File naming strategies:
+    // - count: simple, short filenames, will always collide with multiple syncs. could persist last count
+    // static int count = 0;
+    // basepath = pad2(++count);
+    // - including whole date and time, plus count: legible, no collisions, but long
+    // basepath = std::to_string(img->month) + "-" + std::to_string(img->day) + "-" +
+    //            std::to_string(2000 + img->year_minus_2000) + "_" + pad2(img->hour) + "-" + pad2(img->minute);
+    // - just YYYYMMDD, plus count
+    basepath = std::to_string(t.year2k + 2000) + pad2(t.month) + pad2(t.day);
+    // - unix style timestamp, plus count: shorter, no collisions, not very legible
+    // basepath = std::to_string(time);
+
+    int count = timestampCounts[basepath]++;
+    return "WQV" + basepath + "_" + pad2(count + 1);
+}
+
 void postProcess(std::string fileName, size_t fileSize) {
     std::string dir = "/";
 
-    // Reopen in read mode, I don't think PSRAMFS handles RW mode, but that's fine
-    fs::File src = PSRamFS.open((dir + fileName).c_str(), "r");
-    if (!src) return;
+    // Reopen in read mode, PSRAMFS doesn't handle RW mode well, but that's fine
+    // Hones
+    std::string upfPath = dir + fileName;
+    fs::File src = PSRamFS.open(upfPath.c_str(), "r");
+    if (!src) {
+        LOGE(TAG, "Couldn't open path '%s'", upfPath.c_str());
+        return;
+    }
 
     auto meta = getMetaFromJpegMarker(src);
 
-    time_t time = timestampToTime(meta.second);
+    Timestamp timestamp = meta.second;
+    std::string base = getBaseFilename(timestamp);
+    time_t time = timestampToTime(timestamp);
     setSystemTime(time);
 
     LOGI(TAG, "File %s has metadata time=%s title='%s'", fileName.c_str(), std::ctime(&time), meta.first.c_str());
 
-    // TODO make a new filename using the timestamp, adapt old Image.cpp method
-    std::string base = fileName.substr(0, fileName.size() - 4);
-
+    // Write out the title into a sidecar file if it exists
     if (meta.first.size() > 0) {
-        auto file = FFat.open((dir + base + ".txt").c_str(), "w", true);
+        auto file = FFat.open((dir + base + "_title.txt").c_str(), "w", true);
         file.println(meta.first.c_str());
         file.close();
     }
 
-    if (copyRename(src, dir + base + ".jpg", fileSize)) {
+    if (saveToFlash(src, dir + base + ".jpg", fileSize)) {
         src.close();
         LOGD(TAG, "Copied to flash, removing PSRAM copy");
-        PSRamFS.remove((dir + fileName).c_str());
+        PSRamFS.remove(upfPath.c_str());
     } else {
         src.close();
     }

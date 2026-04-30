@@ -61,6 +61,7 @@ void setup() {
     pinMode(PIN_LED, OUTPUT);
 
     PSRamFS.begin(true);
+    Image::init();
     MassStorage::init();
     Display::init();
 
@@ -430,7 +431,7 @@ void page(int pageDir) {
 }
 
 void sendTime() {
-    std::array<uint8_t, 5> SEND_TIME{0x03, 0x07, 0x00, 0x00, 0x07};
+    std::array<uint8_t, 5> SEND_TIME{0x03, session, 0x00, 0x00, 0x07};
 
     std::vector<uint8_t> send;
     send.reserve(SEND_TIME.size() + sizeof(Timestamp));
