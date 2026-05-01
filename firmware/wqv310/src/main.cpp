@@ -2,6 +2,7 @@
 
 #include <cstring>
 
+#include "app.h"
 #include "chunk.h"
 #include "config.h"
 #include "display.h"
@@ -13,6 +14,12 @@
 #include "stl_helpers.h"
 #include "types.h"
 
+// Shortcut to fill in the arg with the current session
+// e.g. S(CMD_SET_TIME)
+#define S(arg) App::fill((arg), session)
+
+using namespace App;
+
 static const char *TAG = "Main";
 
 const size_t ABORT_AFTER_RETRIES = 50;
@@ -20,6 +27,7 @@ const size_t MAX_IMAGES = 100;
 // Packets seem to be up to 192 bytes
 const size_t BUFFER_SIZE = 1024;
 static uint8_t readBuffer[BUFFER_SIZE];
+static std::span<uint8_t> readSpan;
 
 static size_t len;
 static size_t dataLen;
@@ -116,11 +124,21 @@ static bool expectAck() {
 
 template <size_t N>
 static bool expectStartsWith(const uint8_t (&lit)[N]) {
-    std::span buf(readBuffer);
+    std::span buf(readBuffer, dataLen);
     return buf.size() >= N && std::equal(buf.begin(), buf.begin() + N, lit);
 }
 
-// TODO we should have a higher-level thing that replies with a state 0x03 when we parse fail or resends last when
+static bool expectStartsWith(std::span<const uint8_t> cmp) {
+    std::span buf(readBuffer, dataLen);
+    return buf.size() >= cmp.size() && std::equal(cmp.begin(), cmp.end(), buf.begin());
+}
+
+static bool expectExactly(std::span<const uint8_t> cmp) {
+    std::span buf(readBuffer, dataLen);
+    return buf.size() == cmp.size() && std::equal(cmp.begin(), cmp.end(), buf.begin());
+}
+
+// TODO we should have a higher-level thing that replies with a state 0x53 when we parse fail or resends last when
 // timing out
 bool readFrame(unsigned long timeout = 1000) {
     len = 0;
@@ -141,6 +159,7 @@ bool readFrame(unsigned long timeout = 1000) {
         LOGW(TAG, "Malformed");
         return false;
     }
+    readSpan = std::span(readBuffer, dataLen);
     return true;
 }
 
@@ -189,13 +208,9 @@ bool openSession() {
                                           0x01, 0x80, 0x86, 0x02, 0x80,      0x03, 0x08, 0x01, 0x07};
 
     send = concat(IRDA_RAND_STR, START_SESSION);
-    // TODO i think we can 1. use our port now, and 2. init our own sequence state machine here
-    // ACTUALLY it seems like maybe the reply is dependent on what seq we send??? > 93 < 73
-    // > 23 no reply
-    // But we actually did start earlier with 3f but the logs all really start that way
     Frame::writeFrame(0xff, 0x93, send, 5);
     if (!readFrame()) return false;
-    LOGI(TAG, "Watch accepted SIP port %02x and replied with seq %02x", watchPort, seq);
+    LOGI(TAG, "Watch accepted SIP port %02x", watchPort);
 
     Display::showConnectingScreen(1);
 
@@ -203,14 +218,12 @@ bool openSession() {
     seq_upper = 1;
     seq_lower = 0;
 
-    static const uint8_t SESSION_INIT_BEGIN[]{0x80, 0x03, 0x01, 0x00};
-    Frame::writeFrame(ourPort, makeseq(SEQ_DATA), SESSION_INIT_BEGIN);
+    Frame::writeFrame(ourPort, makeseq(SEQ_DATA, false, false), S(SESSION_BEGIN));
     // Expect an 83 back
     if (!readFrame()) return false;
 
     // 0x80030201 -- let's negotiate a session?
-    const uint8_t SESSION_INIT[]{0x80, 0x03, 0x02, 0x01};
-    Frame::writeFrame(ourPort, makeseq(SEQ_DATA, true, true), SESSION_INIT);
+    Frame::writeFrame(ourPort, makeseq(SEQ_DATA, true, true), S(SESSION_NEGOTIATE));
     // Expect ACK
     if (!(readFrame() && expectAck())) return false;
 
@@ -218,8 +231,7 @@ bool openSession() {
     session = random(0x4, 0xf);
 
     // 0x830401000E -- assign session 04
-    const uint8_t SESSION_IDENT[]{0x83, session, 0x01, 0x00, 0x0E};
-    Frame::writeFrame(ourPort, makeseq(SEQ_DATA, false, true), SESSION_IDENT);
+    Frame::writeFrame(ourPort, makeseq(SEQ_DATA, false, true), S(SESSION_IDENT));
     // Expect  0x8403810001 (first byte = 0x80 | session)
     if (!readFrame()) return false;
 
@@ -272,13 +284,10 @@ bool openSessionInClientRole() {
 
     // < 0x3F 0x01193666BEFFFFFFFF010000...
     // give first one a long time to arrive
-    readFrame(5000);
-
-    // for (int i = 1; dataLen > 0 && readBuffer[0] == 0x01 && readBuffer[1] == 0x19 && i < 6; i++) {
-    //     // We should receive 6 IRDA hello frames
-    //     readFrame(1500);
-    // }
-    // LOGD(TAG, "That should be all the IRDA stack hello frames");
+    if (!readFrame(5000)) {
+        LOGE(TAG, "Was waiting for watch to take over connection, but timed out waiting.");
+        return false;
+    }
 
     Display::showConnectingScreen(4);
 
@@ -300,14 +309,14 @@ bool openSessionInClientRole() {
         readFrame();
 
         // < 0x3F 0x01193666BEFFFFFFFF01FF008C0400434153494F2057494320323431312F4952 ("casio wic...")
-    } while (!expectStartsWith({0x01, 0x19, 0x36, 0x66, 0xBE, 0xFF, 0xFF, 0xFF, 0xFF, 0x01, 0xFF}));
+    } while (!expectStartsWith(IRDA_IDENT));
 
     std::string watchIdentString(reinterpret_cast<const char *>(readBuffer + 15), 17);
     LOGI(TAG, "IRDA stack host ident '%s'", watchIdentString.c_str());
 
     // < 0x93 0x193666BE0E030000(70)01013F82010183013F8401018501808601030801FF
     readFrame();
-    if (readBuffer[0] == 0x19) {
+    if (expectStartsWith(IRDA_STACK)) {
         ourPort = readBuffer[8];
         watchPort = ourPort + 1;
         LOGI(TAG, "Accepting ports assigned by watch: device=%02x watch=%02x", ourPort, watchPort);
@@ -320,25 +329,24 @@ bool openSessionInClientRole() {
     Frame::writeFrame(ourPort, 0x73, CONNECT_STR);
 
     ackLoopInClientRole();
-
     // < 0x10 0x80010100
-    // readFrame(); // ackLoop returned because this was already in the buffer
+    if (!expectStartsWith(CLIENT_SESSION_BEGIN)) return false;
     // > 0x30 0x81008100
-    constexpr uint8_t SESSION_INIT_0[]{0x81, 0x00, 0x81, 0x00};
-    Frame::writeFrame(ourPort, makeseq(SEQ_DATA, true, false), SESSION_INIT_0);
+    Frame::writeFrame(ourPort, makeseq(SEQ_DATA, true, false), CLIENT_REPLY_SESSION_BEGIN);
 
     // Lots of IRDA garbage who cares
+    // TODO see if we can just ACK
     // < 0x32 0x0001840B497244413A4972434F4D4D13497244413A54696E7954503A4C73617053656C
     readFrame();
     // if (dataLen > 0 && readBuffer[0] == 0 && readBuffer[1] == 0x01) {
     constexpr uint8_t IRDA_NEGOTIATE_0[]{0x01, 0x00, 0x84, 0x00, 0x00, 0x01, 0x00, 0x05, 0x01, 0x00, 0x00, 0x00, 0x09};
     // > 0x52 0x01008400000100050100000009
     Frame::writeFrame(ourPort, makeseq(SEQ_DATA, true, true), IRDA_NEGOTIATE_0);
-    // }
 
+    // more IRDA garbage
+    // TODO see if we can just ACK
     // < 0x54 0x0001840B497244413A4972434F4D4D0A506172616D65746572737D
     readFrame();
-    // more IRDA garbage
     // > 0x74 0x0100840000010005020006000106010101
     constexpr uint8_t IRDA_NEGOTIATE_1[]{0x01, 0x00, 0x84, 0x00, 0x00, 0x01, 0x00, 0x05, 0x02,
                                          0x00, 0x06, 0x00, 0x01, 0x06, 0x01, 0x01, 0x01};
@@ -346,28 +354,27 @@ bool openSessionInClientRole() {
 
     // < 0x76 0x8903010001
     readFrame();
-    if (dataLen > 0 && (readBuffer[0] & 0xf0) == 0x80) {
+    if (dataLen == 5 && (readBuffer[0] & 0xf0) == 0x80) {
         session = readBuffer[0] & 0xf;
         LOGI(TAG, "Received session id %01x from watch", session);
     } else {
-        LOGE(TAG, "Missed session id, should have been able to figure it out");
+        LOGE(TAG, "Missed session id, should have been able to figure it out from %02x", readBuffer[0]);
+        // TODO try an error status
         return false;
     }
     // > 0x96 0x830981000E
-    uint8_t SESSION_CONFIRM[]{0x83, session, 0x81, 0x00, 0x0e};
-    Frame::writeFrame(ourPort, makeseq(SEQ_DATA, true, true), SESSION_CONFIRM);
+    Frame::writeFrame(ourPort, makeseq(SEQ_DATA, true, true), S(CLIENT_REPLY_SESSIONID_ASSIGN));
 
     // < 0x98 0x09030003000104
-    readFrame();
+
+    if (!(readFrame() && expectStartsWith({session, 0x03, 0x00, 0x03}))) return false;
     // > 0xB1
     Frame::writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
 
     // < 0x9A 0x0903000C10040000258011010320010C
-    readFrame();
+    if (!(readFrame() && expectStartsWith({session, 0x03, 0x00, 0x0C}))) return false;
     // > 0xD1
     Frame::writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
-
-    // loop while received frame is ack
 
     Display::showConnectingScreen(5);
 
@@ -382,9 +389,8 @@ bool ping() {
 
 bool closeSession() {
     LOGI(TAG, "Closing session...");
-    // 0x83 SS 0201
-    const uint8_t HANGUP[]{0x83, session, 0x02, 0x01};
-    Frame::writeFrame(ourPort, makeseq(SEQ_DATA, false, true), HANGUP);
+    // 0x83SS0201
+    Frame::writeFrame(ourPort, makeseq(SEQ_DATA, false, true), S(SESSION_END));
     readFrame();
     Frame::writeFrame(ourPort, makeseq(SEQ_ACK, false, true));
     readFrame();
@@ -397,10 +403,8 @@ bool closeSession() {
 bool swapRolesAndCloseSession() {
     LOGI(TAG, "Ending session and swapping roles");
 
-    // THIS DOES APPEAR TO START A RECONNECT WITH SWAPPED ROLES?
     // > 0x0308000001
-    const uint8_t REQUEST_REVERSE_ROLES[]{0x03, session, 0x00, 0x00, 0x01};
-    Frame::writeFrame(ourPort, makeseq(SEQ_DATA, false, true), REQUEST_REVERSE_ROLES);
+    Frame::writeFrame(ourPort, makeseq(SEQ_DATA, false, true), S(CMD_SWAP_ROLES));
     // < 0x0803010C100400002580110103000104
     readFrame();
     // > 0xD1
@@ -417,83 +421,28 @@ bool swapRolesAndCloseSession() {
 
 void page(int pageDir) {
     if (pageDir == 0) return;
-    std::array<uint8_t, 5> PAGE_FWD{0x03, session, 0x00, 0x00, 0x02};
-    std::array<uint8_t, 5> PAGE_BACK{0x03, session, 0x00, 0x00, 0x03};
-    Frame::writeFrame(ourPort, makeseq(SEQ_DATA, false, true), pageDir > 0 ? PAGE_FWD : PAGE_BACK);
+    auto cmd = S(pageDir > 0 ? CMD_PAGE_FWD : CMD_PAGE_BACK);
+    Frame::writeFrame(ourPort, makeseq(SEQ_DATA, false, true), cmd);
     readFrame();
     Frame::writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
     readFrame();
 }
 
-void sendTime() {
-    std::array<uint8_t, 5> SEND_TIME{0x03, session, 0x00, 0x00, 0x07};
+void sendTime(Timestamp time) {
+    auto cmd = S(CMD_SET_TIME);
+    std::vector<uint8_t> sendBuffer(std::size(cmd) + sizeof(Timestamp));
+    sendBuffer.insert(sendBuffer.end(), cmd.begin(), cmd.end());
+    std::memcpy(sendBuffer.data() + sendBuffer.size(), &time, sizeof(Timestamp));
 
-    std::vector<uint8_t> send;
-    send.reserve(SEND_TIME.size() + sizeof(Timestamp));
-    send.insert(send.begin(), SEND_TIME.begin(), SEND_TIME.end());
-
-    Timestamp time = {.year2k = 20, .month = 1, .day = 30, .hour = 12, .minute = 30};
-    // appendStruct(send, time);
-    auto *begin = reinterpret_cast<const uint8_t *>(&time);
-    auto *end = begin + sizeof(Timestamp);
-    send.insert(send.end(), begin, end);
-
-    Frame::writeFrame(ourPort, 0xBE, send, 5);
+    Frame::writeFrame(ourPort, makeseq(SEQ_DATA, true, true), sendBuffer, 5);
     if (readFrame() && expect(watchPort, 0x1A)) {
         LOGI(TAG, "Accepted time?");
     }
 }
 
-std::vector<uint8_t> cmdToResponse(std::span<const uint8_t> src, int8_t shifts,
-                                   std::span<const uint8_t> extraData = {}) {
-    constexpr char RESPONSE_BDY0[] = "BDY0";
-    std::vector<uint8_t> response(src.begin(), src.end());
-    response.reserve(response.size() + 4 + 4 + extraData.size());
-
-    // 1. First bytes: swap [session] 03 -> 03 [session]
-    response[0] = 0x03;
-    response[1] = session;
-
-    // 2. Last byte 0x2b: 02 -> 01
-    response[0x2b] = 0x01;
-
-    // 3. Byte 0xf: 00 -> 40
-    response[0xf] = 0x40;
-
-    // 4. Byte 0x18 & 0x20: swap
-    response[0x18] = src[0x20];
-    response[0x20] = src[0x18];
-
-    // 5. Byte 0x29 unchanged
-
-    // 6. Shifted fields
-    response[0x9] = static_cast<uint8_t>(static_cast<int8_t>(src[0x9]) + shifts);
-    response[0xd] = static_cast<uint8_t>(static_cast<int8_t>(src[0xd]) + shifts);
-    response[0x13] = static_cast<uint8_t>(static_cast<int8_t>(src[0x13]) + shifts);
-
-    // Append "BDY0" without \0
-    response.insert(response.end(), std::begin(RESPONSE_BDY0), std::end(RESPONSE_BDY0) - 1);
-
-    // Append 4-byte size of extended data
-    uint32_t extraSize = static_cast<uint32_t>(extraData.size());
-    response.push_back(static_cast<uint8_t>((extraSize >> 24) & 0xFF));
-    response.push_back(static_cast<uint8_t>((extraSize >> 16) & 0xFF));
-    response.push_back(static_cast<uint8_t>((extraSize >> 8) & 0xFF));
-    response.push_back(static_cast<uint8_t>(extraSize & 0xFF));
-
-    // Append extended data
-    response.insert(response.end(), extraData.begin(), extraData.end());
-    return response;
-}
-
-std::string getCmdName() {
-    return std::string(reinterpret_cast<const char *>(readBuffer + dataLen - 4), 4);
-}
-
 bool syncInClientRole() {
     std::vector<uint8_t> response;
-    std::span<uint8_t> cmdSpan;
-    
+
     // NOTE it's important to only do work when the watch is not sending (waiting for our reply)
     readFrame();
 
@@ -533,7 +482,7 @@ bool syncInClientRole() {
 
     // < 0xBE 0x090301
     ackLoopInClientRole();
-    if (!expectStartsWith({session, 0x03, 0x01})) return false;
+    if (!expectExactly(S(CLIENT_APP_ITER_NEXT))) return false;
     LOGD(TAG, "<< Yield next object from watch");
     Frame::writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
 
@@ -541,15 +490,14 @@ bool syncInClientRole() {
     // < 0xB0
     // 0x09030000002003FF003E107DE1003A580000000034080074031000000008007403000000000008000800800002434D4430000000060000000100405748543000000006010052494D47
     ackLoopInClientRole();
-    LOGI(TAG, "<< %s (expecting RIMG)", getCmdName().c_str());
+    LOGI(TAG, "<< %s (expecting RIMG)", getCmdName(readBuffer).c_str());
     // RIMG / +0x20 / 52 bytes extra data
-    cmdSpan = std::span(readBuffer).subspan(0, 44);
     constexpr uint8_t RIMG_EXTRA_DATA[]{0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x08, 0x00, 0x06, 0x00, 0x02, 0x07, 0x08,
                                         0x00, 0x06, 0x00, 0x06, 0x40, 0x04, 0xB0, 0x05, 0x00, 0x03, 0xC0, 0x04, 0x00,
                                         0x03, 0x00, 0x03, 0x20, 0x02, 0x58, 0x02, 0x80, 0x01, 0xE0, 0x01, 0x40, 0x00,
                                         0xF0, 0x03, 0xC4, 0x20, 0x04, 0x01, 0xC4, 0x20, 0x05, 0x00, 0x00, 0x18, 0x00};
-    response = cmdToResponse(cmdSpan, 0x20, RIMG_EXTRA_DATA);
     LOGI(TAG, ">> BDY0");
+    response = makeResponse(readSpan.subspan(0, 44), session, 0x20, RIMG_EXTRA_DATA);
     Frame::writeFrame(ourPort, makeseq(SEQ_DATA, true, true), response);
 
     // < 0xBE 0x090301
@@ -562,12 +510,11 @@ bool syncInClientRole() {
     // < 0xD4
     // 0x09030000002003FF003E107DE1003A580000000034080074031000000008007403000000000008000800810002434D4430000000060000000100405748543000000006010052494E46
     ackLoopInClientRole();
-    LOGI(TAG, "<< %s (expecting RINF)", getCmdName().c_str());
+    LOGI(TAG, "<< %s (expecting RINF)", getCmdName(readBuffer).c_str());
     // RINF / -0x0C / 8 bytes extra data
-    cmdSpan = std::span(readBuffer).subspan(0, 44);
     constexpr uint8_t RINF_EXTRA_DATA[]{0x00, 0x00, 0x10, 0xFF, 0xFF, 0x11, 0xFF, 0xFF};
-    response = cmdToResponse(cmdSpan, -0x0C, RINF_EXTRA_DATA);
     LOGI(TAG, ">> BDY0");
+    response = makeResponse(readSpan.subspan(0, 44), session, -0x0C, RINF_EXTRA_DATA);
     Frame::writeFrame(ourPort, makeseq(SEQ_DATA, true, true), response);
 
     // < 0xBE 0x090301
@@ -580,59 +527,56 @@ bool syncInClientRole() {
     // < 0xF8
     // 0x09030000002003FF003E107DE1003A580000000034080074031000000008007403000000000008000800820002434D4430000000060000000100405748543000000006010052434D44
     ackLoopInClientRole();
-    LOGI(TAG, "<< %s (expecting RCMD)", getCmdName().c_str());
+    LOGI(TAG, "<< %s (expecting RCMD)", getCmdName(readBuffer).c_str());
     // RCMD / -0x0D / 7 bytes extra data
-    cmdSpan = std::span(readBuffer).subspan(0, 44);
     // NOTE i removed an extra unaccounted for 0xc4 off the end of this.
     constexpr uint8_t RCMD_EXTRA_DATA[]{0x00, 0x00, 0x20, 0x00, 0x01, 0x00, 0x01};
-    response = cmdToResponse(cmdSpan, -0x0D, RCMD_EXTRA_DATA);
     LOGI(TAG, ">> BDY0");
+    response = makeResponse(readSpan.subspan(0, 44), session, -0x0D, RCMD_EXTRA_DATA);
     Frame::writeFrame(ourPort, makeseq(SEQ_DATA, true, true), response);
 
     // < 0xBE 0x090301
     ackLoopInClientRole();
-    if (!expectStartsWith({session, 0x03, 0x01})) return false;
+    if (!expectExactly(S(CLIENT_APP_ITER_NEXT))) return false;
     LOGD(TAG, "i++ from watch");
     Frame::writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
 
     for (size_t fileCount = 0; true; fileCount++) {
-        // PSRamFS doesn't implement size() correctly last i checked, we can track
-        // size_t fileSize = 0;
-
         ackLoopInClientRole();
-        if (expectStartsWith({session, 0x03, 0x00, 0x00, 0x00, 0x30})) {
+        if (expectStartsWith(S(CLIENT_APP_FILES_NEXT))) {
+            LOGD(TAG, "READY FOR NEXT FILE!");
+        } else if (expectStartsWith(S(CLIENT_APP_FILES_DONE))) {
             LOGI(TAG, "Nothing more to receive! We're done.");
             Frame::writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
             break;
-        } else if (expectStartsWith({session, 0x03, 0x00, 0x00, 0x00, 0x20})) {
-            LOGD(TAG, "READY FOR NEXT FILE!");
         } else {
             LOGE(TAG, "Unexpected command");
             return false;
         }
 
         // TODO this is actually a chunk - move into main loop
-        // Really, I think all bytes are included in the .UPF file, and so the .JPG file exists within the .UPF file
-        // NOTE it might have a bit of a special header
+        // As is, this makes the assumption 2 frames/chunk, no good!
+        // Really, I think all bytes are included in the .UPF file, and so the .JPG
+        // file exists within the .UPF file NOTE it might have a bit of a special
+        // chunk header
+
         // FIL0
+        // We have to send the RDY0 much later, so let's create it now instead of holding onto the FIL0
+        auto [fileName, rpl0] = makeFilRplResponse(readSpan, session);
         std::string fileCmdName = std::string(reinterpret_cast<const char *>(readBuffer + 0x42), 4);
-        std::string fileName = std::string(reinterpret_cast<const char *>(readBuffer + 0x4C), 12);
         LOGI(TAG, "<< %s saving to %s", fileCmdName.c_str(), fileName.c_str());
-        // We'll use this later in the RDY0 response
-        uint8_t cmdFil0Seq = readBuffer[0x31];
         Frame::writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
 
-        readFrame();
-        if (!expectStartsWith({session, 0x03, 0x00, 0x00})) return false;
+        if (!(readFrame() && expectStartsWith(S(CLIENT_APP_PACKET)))) return false;
 
-        auto jpegSpan = Chunk::findJpegRegion(std::span(readBuffer, dataLen));
+        // TODO Don't make the assumption that the JPEG data only comes in the second frame
+        auto jpegSpan = Chunk::findJpegRegion(readSpan);
         if (jpegSpan.size() > 0) {
             LOGI(TAG, "Found beginning of JPEG inside chunk");
             fileBuffer.insert(fileBuffer.end(), jpegSpan.begin(), jpegSpan.end());
         }
         Frame::writeFrame(ourPort, makeseq(SEQ_ACK, true, false));
 
-        uint8_t SESSION_CHUNK_HEADER[]{session, 0x03, 0x00, 0x00};
         Chunk::Header header;
 
         do {  // LOOP OVER CHUNKS IN FILE
@@ -642,8 +586,7 @@ bool syncInClientRole() {
 
             do {  // LOOP OVER FRAMES IN CHUNK
 
-                readFrame();
-                if (!expectStartsWith(SESSION_CHUNK_HEADER)) {
+                if (!(readFrame() && expectStartsWith(S(CLIENT_APP_PACKET)))) {
                     LOGE(TAG, "Unexpected session header");
                     return false;
                 }
@@ -663,9 +606,10 @@ bool syncInClientRole() {
 
                     Display::showProgressScreen(header.chunkNumber, header.chunkNumber + header.chunksLeft, fileCount);
 
+                    // TODO utilize getAppPacketPayload and abstract away the session header
                     LOGD(TAG, "Chunk %02d/%02d, %02d remain", header.chunkNumber,
                          header.chunkNumber + header.chunksLeft, header.chunksLeft);
-                    size_t headersSize = sizeof(SESSION_CHUNK_HEADER) + Chunk::HEADER_SIZE;
+                    size_t headersSize = std::size(CLIENT_APP_PACKET) + Chunk::HEADER_SIZE;
                     size_t bytes = dataLen - headersSize;
                     chunkBytesReceived += bytes;
                     fileBuffer.insert(fileBuffer.end(), readBuffer + headersSize, readBuffer + headersSize + bytes);
@@ -675,12 +619,15 @@ bool syncInClientRole() {
                 } else {
                     // CHUNK CONTINUATION FRAME
                     if (dataLen <= 4) {
-                        LOGE(TAG, "Expected continuation frame, as %d bytes remain in this chunk",
+                        LOGE(TAG,
+                             "Expected continuation frame, as %d bytes remain in "
+                             "this chunk",
                              header.chunkSize - chunkBytesReceived);
                         return false;
                     }
 
-                    size_t headersSize = sizeof(SESSION_CHUNK_HEADER);
+                    // TODO utilize getAppPacketPayload and abstract away the session header
+                    size_t headersSize = std::size(CLIENT_APP_PACKET);
                     size_t bytes = dataLen - headersSize;
                     chunkBytesReceived += bytes;
                     fileBuffer.insert(fileBuffer.end(), readBuffer + headersSize, readBuffer + headersSize + bytes);
@@ -713,13 +660,8 @@ bool syncInClientRole() {
 
         // RPL0
         if (!(readFrame() && expectAck())) return false;
-        uint8_t RPL0_CMD[]{0x03, session, 0x00, 0x00, 0x00, 0x20, 0x03, 0xFF, 0x00, 0x38, 0x10, 0xC1, 0x00, 0x34,
-                           0x58, 0x40,    0x00, 0x00, 0x00, 0x2E, 0x08, 0x00, 0x74, 0x03, 0x00, 0x00, 0x00, 0x00,
-                           0x08, 0x00,    0x74, 0x03, 0x10, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x08, 0x00, cmdFil0Seq,
-                           0x00, 0x01,    0x52, 0x50, 0x4C, 0x30, 0x00, 0x00, 0x00, 0x0E, 0x01, 0x00, 0x00, 0x00,
-                           0x00, 0x00,    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-        std::memcpy(RPL0_CMD + 0x36, fileName.data(), 12);
-        Frame::writeFrame(ourPort, makeseq(SEQ_DATA, false, true), RPL0_CMD);
+        // Use the RPL0 we created earlier
+        Frame::writeFrame(ourPort, makeseq(SEQ_DATA, false, true), rpl0);
 
         ackLoopInClientRole();
         if (expectStartsWith({session, 0x03, 0x01})) {
