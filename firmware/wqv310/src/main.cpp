@@ -195,8 +195,12 @@ bool openSession() {
     LOGI(TAG, "Connected to watch '%s'", watchIdString.c_str());
 
     if (watchIdString == "CASIO WIC 2411/IR") {
+        Display::setModel(3);
+        Display::showConnectingScreen(0);
         LOGI(TAG, "WQV-3 mode!");
     } else if (watchIdString == "CASIO WIC 2412/IR") {
+        Display::setModel(10);
+        Display::showConnectingScreen(0);
         LOGI(TAG, "WQV-10 MODE!");
     } else {
         LOGI(TAG, "Unrecognized watch");

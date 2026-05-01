@@ -1,10 +1,13 @@
 #ifdef ENABLE_DISPLAY_128x64
+#include "display.h"
+
 #include <Adafruit_SSD1306.h>
+
+#include <string>
 
 #include "Nokia_Cellphone_FC_8.h"
 #include "_1980v23P04_16.h"
 #include "config.h"
-#include "display.h"
 #include "log.h"
 
 #define SCREEN_WIDTH 128
@@ -16,7 +19,21 @@
 namespace Display {
 
 static const char* TAG = "Display";
+
 static int screen = -1;
+static int model = 10;
+static bool scroll = false;
+static std::string modelString;
+static std::string statusString;
+
+void setModel(int m) {
+    model = m;
+    if (m == 3) {
+        modelString = "WQV-3";
+    } else if (m == 10) {
+        modelString = "WQV-10";
+    }
+}
 
 static Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
@@ -86,7 +103,13 @@ void dim(bool d) {
     }
 }
 
-void scrollStatus() {
+void stopScroll() {
+    display.ssd1306_command(SSD1306_DEACTIVATE_SCROLL);
+}
+
+void startScroll() {
+    // NOTE only call after display()
+
     // Scrolls the bottom 2 "pages" of 8px
     // Corresponding with the yellow area of the bicolour OLED screens
     // Would be nice to find a way to mount the board rightside up and restore the status bar to the top
@@ -102,6 +125,25 @@ void scrollStatus() {
     display.ssd1306_command(SSD1306_ACTIVATE_SCROLL);
 }
 
+void drawBar() {
+    // bottom_bar
+    display.fillRect(0, 55, 128, 9, 1);
+
+    display.setTextColor(0);
+    display.setTextWrap(false);
+    display.setFont(&_1980v23P04_16);
+
+    // watch_id
+    if (!scroll) {
+        display.setCursor(model == 3 ? 90 : 87, 62);
+        display.print(modelString.c_str());
+    }
+
+    // stage
+    display.setCursor(1, 62);
+    display.print(statusString.c_str());
+}
+
 void showIdleScreen() {
     static uint32_t firstIdleScreenTime;
 
@@ -113,14 +155,16 @@ void showIdleScreen() {
     }
     dim(false);
     firstIdleScreenTime = millis();
+
     screen = 0;
+    scroll = true;
+    statusString = "SEARCHING";
 
     static const unsigned char image_Layer_12_bits[] = {
         0xff, 0xff, 0xff, 0x80, 0x00, 0x01, 0x8e, 0x00, 0x71, 0x91, 0x00, 0x89, 0xa0, 0x81, 0x05, 0xa0, 0x81,
         0x05, 0xa0, 0x81, 0x05, 0x91, 0x00, 0x89, 0x8e, 0x00, 0x71, 0x80, 0x00, 0x01, 0xff, 0xff, 0xff};
 
-    display.ssd1306_command(SSD1306_DEACTIVATE_SCROLL);
-
+    stopScroll();
     display.clearDisplay();
 
     // Layer 2
@@ -134,76 +178,42 @@ void showIdleScreen() {
     display.setCursor(40, 11);
     display.print("On watch:");
 
-    // Layer 10
-    display.fillRect(0, 55, 128, 9, 1);
-
-    // Layer 9
-    display.setTextColor(0);
-    display.setFont(&_1980v23P04_16);
-    // display.setCursor(93, 62);
-    // display.print("WQV-3");
-
-    // Layer 2 copy
-    display.setCursor(1, 62);
-    display.print("SEARCHING");
-
-    // Layer 3 copy
-    display.setTextColor(1);
-    display.setFont(&Nokia_Cellphone_FC_8);
     display.setCursor(32, 43);
     display.print("Aim at");
 
     // Layer 12
     display.drawBitmap(71, 35, image_Layer_12_bits, 24, 11, 1);
 
+    drawBar();
     display.display();
-    scrollStatus();
+    if (scroll) startScroll();
 }
 
 void showConnectingScreen(int offset) {
     screen = 1;
+    scroll = false;
+    statusString = "CONNECTING";
 
-    display.ssd1306_command(SSD1306_DEACTIVATE_SCROLL);
+    stopScroll();
     display.clearDisplay();
 
     display.drawBitmap(48 + offset, 34, image_arrow_right_bits, 7, 5, 1);
 
     display.drawBitmap(69 - offset, 34, image_arrow_left_bits, 7, 5, 1);
 
-    // Layer 10
-    display.fillRect(0, 55, 128, 9, 1);
-
-    display.setTextColor(0);
-    display.setFont(&_1980v23P04_16);
-    display.setCursor(93, 62);
-    display.print("WQV-3");
-
-    display.setCursor(1, 62);
-    display.print("CONNECTING");
-
+    drawBar();
     display.display();
+    if (scroll) startScroll();
 }
 
-void showProgressScreen(size_t chunkNumber, size_t totalChunks, size_t imageNumber, const char* step) {
+void showProgressScreen(size_t chunkNumber, size_t totalChunks, size_t imageNumber) {
     screen = 2;
+    scroll = false;
+    statusString = "DOWNLOADING";
     static uint8_t frame = 0;
 
-    display.ssd1306_command(SSD1306_DEACTIVATE_SCROLL);
+    stopScroll();
     display.clearDisplay();
-
-    // status_bar
-    display.fillRect(0, 55, 128, 9, 1);
-
-    // status_wqv
-    display.setTextColor(0);
-    display.setTextWrap(false);
-    display.setFont(&_1980v23P04_16);
-    display.setCursor(93, 62);
-    display.print("WQV-3");
-
-    // status_downloading
-    display.setCursor(1, 62);
-    display.print(step);
 
     // bar_border
     display.drawRect(1, 38, 125, 9, 1);
@@ -224,14 +234,18 @@ void showProgressScreen(size_t chunkNumber, size_t totalChunks, size_t imageNumb
     // frame0
     display.drawBitmap(23, 4, frames[(frame++) % 5], 14, 14, 1);
 
+    drawBar();
     display.display();
+    if (scroll) startScroll();
 }
 
 void showMountedScreen() {
     if (screen == 3) return;
     screen = 3;
+    scroll = true;
+    statusString = "MOUNTED";
 
-    display.ssd1306_command(SSD1306_DEACTIVATE_SCROLL);
+    stopScroll();
     display.clearDisplay();
 
     // file_save
@@ -248,22 +262,9 @@ void showMountedScreen() {
     display.setCursor(22, 42);
     display.print("Eject when done!");
 
-    // Layer 6
-    display.fillRect(0, 55, 128, 9, 1);
-
-    // Layer 9
-    display.setTextColor(0);
-    display.setFont(&_1980v23P04_16);
-    // display.setCursor(93, 62);
-    // display.print("WQV-3");
-
-    // Layer 2 copy
-    display.setCursor(1, 62);
-    display.print("MOUNTED");
-
+    drawBar();
     display.display();
-
-    scrollStatus();
+    if (scroll) startScroll();
 }
 
 // Currently unused
