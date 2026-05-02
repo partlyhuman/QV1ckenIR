@@ -41,3 +41,5 @@
 #ifndef PIN_WS2812
 #define PIN_WS2812 48
 #endif
+
+#define THIS_FIRMWARE_SLOT 0

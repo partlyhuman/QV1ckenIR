@@ -5,6 +5,7 @@ namespace Display {
 
 bool init();
 void dim(bool dim);
+void showBootScreen();
 void showIdleScreen();
 void showConnectingScreen(int offset = 0);
 void showProgressScreen(size_t bytes, size_t totalBytes, size_t bytesPerImage, const char* label = "DOWNLOADING");

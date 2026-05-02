@@ -36,20 +36,21 @@ enum SequenceType {
 
 uint8_t seq_upper = 1, seq_lower = 0;
 
-// TODO simplify this, it should really inc lower only when data type, and know the difference between ack and ack loop
 inline uint8_t makeseq(SequenceType type, bool incUpper = false, bool incLower = false) {
     if (incUpper) seq_upper += 0x2;
     if (incLower) seq_lower += 0x2;
     return (seq_upper & 0xf) << 4 | ((type == SEQ_ACK ? 1 : seq_lower) & 0xf);
 }
 
-volatile static bool pendingManualModeToggle;
-void IRAM_ATTR onManualModeToggleButton() {
-    pendingManualModeToggle = true;
+volatile static bool buttonPressed;
+void IRAM_ATTR onButtonPress() {
+    buttonPressed = true;
 }
 
 void setup() {
     Firmware::init();
+    Display::init();
+    Display::showBootScreen();
 
     Serial.begin(BAUDRATE);
 
@@ -60,11 +61,10 @@ void setup() {
 
     Image::init();
     MassStorage::init();
-    Display::init();
 
-    // Button manually toggles between Sync/USB (IR/MSC) mode
+    // Button manually toggles between Sync/USB (IR/MSC) mode or reboots into other firmware
     pinMode(PIN_BUTTON, INPUT_PULLUP);
-    attachInterrupt(PIN_BUTTON, onManualModeToggleButton, FALLING);
+    attachInterrupt(PIN_BUTTON, onButtonPress, FALLING);
 
 #ifdef PIN_IRDA_SD
     // TFDU4101 Shutdown pin, powered by bus power, safe to tie to ground
@@ -78,6 +78,7 @@ void setup() {
 
     digitalWrite(PIN_LED, LED_OFF);
     LOGI(TAG, "Setup complete");
+    delay(2500);
 }
 
 /**
@@ -663,16 +664,24 @@ bool syncInClientRole() {
 }
 
 void loop() {
-    if (pendingManualModeToggle) {
-        pendingManualModeToggle = false;
+    if (buttonPressed) {
+        ulong startTime = millis();
+        ulong holdTime = 0;
+        while (digitalRead(PIN_BUTTON) == LOW) {
+            holdTime = millis() - startTime;
+            if (holdTime > 500) {
+                Firmware::rebootIntoNextPartition();
+                return;
+            }
+        }
         Display::dim(false);
         if (MassStorage::active) {
             MassStorage::end();
         } else {
             Display::showMountedScreen();
-            delay(500);
             MassStorage::begin();
         }
+        buttonPressed = false;
         return;
     }
 

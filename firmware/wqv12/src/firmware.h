@@ -4,6 +4,7 @@
 
 namespace Firmware
 {
-	void init();
-	void rebootIntoPartition(int part);
+void init();
+void rebootIntoNextPartition();
+void rebootIntoPartition(uint part);
 }

@@ -33,21 +33,23 @@ static uint8_t addr;
 static uint8_t ctrl;
 // Whether we're streaming the transferred data into PSRAM or FAT
 static bool usePsram;
-volatile static bool pendingManualModeToggle;
 
-void IRAM_ATTR onManualModeToggleButton() {
-    pendingManualModeToggle = true;
+volatile static bool buttonPressed;
+void IRAM_ATTR onButtonPress() {
+    buttonPressed = true;
 }
 
 void setup() {
     Firmware::init();
+    Display::init();
+    Display::showBootScreen();
 
     Serial.begin(115200);
-
     // Doing this means it doesn't start until serial connected?
     // while (!Serial);
 
     pinMode(PIN_LED, OUTPUT);
+    digitalWrite(PIN_LED, LED_OFF);
 
     // Should be a little under 1mb. PSRamFS will use heap if not available, we want to prevent that though
     usePsram = false;
@@ -61,11 +63,10 @@ void setup() {
 
     MassStorage::init();
     Image::init();
-    Display::init();
 
-    // Button manually toggles between Sync/USB (IR/MSC) mode
+    // Button manually toggles between Sync/USB (IR/MSC) mode and switches firmwares
     pinMode(PIN_BUTTON, INPUT_PULLUP);
-    attachInterrupt(PIN_BUTTON, onManualModeToggleButton, FALLING);
+    attachInterrupt(PIN_BUTTON, onButtonPress, FALLING);
 
 #ifdef PIN_IRDA_SD
     // TFDU4101 Shutdown pin, powered by bus power, safe to tie to ground
@@ -77,8 +78,9 @@ void setup() {
     IRDA_setup(IRDA);
     while (!IRDA);
 
-    digitalWrite(PIN_LED, LED_OFF);
     LOGI(TAG, "Setup complete");
+
+    delay(2500);
 }
 
 /**
@@ -340,16 +342,24 @@ bool closeSession() {
 }
 
 void loop() {
-    if (pendingManualModeToggle) {
-        pendingManualModeToggle = false;
+    if (buttonPressed) {
+        ulong startTime = millis();
+        ulong holdTime = 0;
+        while (digitalRead(PIN_BUTTON) == LOW) {
+            holdTime = millis() - startTime;
+            if (holdTime > 500) {
+                Firmware::rebootIntoNextPartition();
+                return;
+            }
+        }
         Display::dim(false);
         if (MassStorage::active) {
             MassStorage::end();
         } else {
             Display::showMountedScreen();
-            delay(500);
             MassStorage::begin();
         }
+        buttonPressed = false;
         return;
     }
 
