@@ -6,6 +6,8 @@
 #include <string>
 #include <utility>
 
+#include "frame.h"
+
 // Presentation/session layer
 // The first 4+ bytes of a frame are a session header
 // The first byte of this differentiates commands into
@@ -58,9 +60,9 @@ std::vector<uint8_t> makeResponse(std::span<const uint8_t> src, uint8_t session,
 std::pair<std::string, std::vector<uint8_t>> makeFilRplResponse(std::span<const uint8_t> src, uint8_t session);
 
 // For app payloads, get the 4-char command string at the end
-std::string getCmdName(std::span<const uint8_t> src);
+std::string getCmdName(Frame::Frame frame);
 
 // Strip off the session layer header (CLIENT_APP_PACKET)
-std::span<const uint8_t> getAppPacketPayload(std::span<const uint8_t> readBuffer);
+std::span<const uint8_t> getAppPayload(Frame::Frame frame);
 
 }  // namespace App

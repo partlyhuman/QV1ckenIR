@@ -13,6 +13,9 @@ uint16_t readBigEndianUint16(const uint8_t *p) {
     return (uint32_t(p[0]) << 8) | (uint32_t(p[1]));
 }
 
+// This is also mixed up because all App NS APIs assume the session header is in it, and this doesn't
+// TODO is really to fix the other ones, not this one
+
 std::optional<Header> parseHeader(std::span<const uint8_t> raw) {
     if (raw.size() < HEADER_SIZE) {
         LOGE(TAG, "Data shorter than chunk header size");

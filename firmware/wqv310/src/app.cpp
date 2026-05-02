@@ -74,17 +74,16 @@ std::pair<std::string, std::vector<uint8_t>> makeFilRplResponse(std::span<const 
     return std::pair(fileName, reply);
 }
 
-std::string getCmdName(std::span<const uint8_t> src) {
-    const char *end = reinterpret_cast<const char *>(src.data() + src.size());
-    return std::string(end - 4, 4);
+std::string getCmdName(Frame::Frame frame) {
+    return Frame::extractString(frame, frame.data.size() - 4, 4);
 }
 
-std::span<const uint8_t> getAppPacketPayload(std::span<const uint8_t> readBuffer) {
-    if (readBuffer.size() < std::size(CLIENT_APP_PACKET)) {
+std::span<const uint8_t> getAppPayload(Frame::Frame frame) {
+    if (frame.error || frame.data.size() < std::size(CLIENT_APP_PACKET)) {
         return {};
     }
     // Could reject if doesn't start with session header
-    return readBuffer.subspan(std::size(CLIENT_APP_PACKET));
+    return frame.data.subspan(std::size(CLIENT_APP_PACKET));
 }
 
 }  // namespace App

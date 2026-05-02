@@ -69,7 +69,7 @@ void writeFrame(uint8_t addr, uint8_t control, span<const uint8_t> data, size_t 
     IRDA_tx(false);
 }
 
-bool parseFrame(uint8_t *buf, size_t len, size_t &outLen, uint8_t &addr, uint8_t &control) {
+ReadError parseFrame(uint8_t *buf, size_t len, size_t &outLen, uint8_t &addr, uint8_t &control) {
     uint16_t crc = 0xffff;
     size_t i = 0;
     outLen = 0;
@@ -79,7 +79,7 @@ bool parseFrame(uint8_t *buf, size_t len, size_t &outLen, uint8_t &addr, uint8_t
 
     if (buf[i] != FRAME_BOF) {
         LOGE(TAG, "Frame does not start with BOF");
-        return false;
+        return FRAME_READ_ERROR;
     }
 
     // Allow any number of BOF markers
@@ -88,7 +88,7 @@ bool parseFrame(uint8_t *buf, size_t len, size_t &outLen, uint8_t &addr, uint8_t
     size_t index_addr = i;
     if ((len - index_addr) < 3) {
         LOGE(TAG, "Read data shorter than minimum frame length");
-        return false;
+        return FRAME_MALFORMED;
     }
 
     addr = buf[i++];
@@ -103,7 +103,7 @@ bool parseFrame(uint8_t *buf, size_t len, size_t &outLen, uint8_t &addr, uint8_t
         // We could have gotten duplicate messages, end if this contains two (TODO this will drop messages...)
         if (b == FRAME_EOF) {
             LOGE(TAG, "Early EOF, readUntilByte should have caught this");
-            return false;
+            return FRAME_MALFORMED;
         }
         if (b == FRAME_ESC && i + 1 < len) {
             b = buf[++i] ^ 0x20;
@@ -114,7 +114,7 @@ bool parseFrame(uint8_t *buf, size_t len, size_t &outLen, uint8_t &addr, uint8_t
 
     if (outLen < 2) {
         LOGE(TAG, "Unescaped string too short");
-        return false;
+        return FRAME_MALFORMED;
     }
 
     uint16_t expectedcrc = buf[outLen - 2] | (buf[outLen - 1] << 8);
@@ -136,10 +136,56 @@ bool parseFrame(uint8_t *buf, size_t len, size_t &outLen, uint8_t &addr, uint8_t
 
     if (expectedcrc != crc) {
         LOGE(TAG, "Expected crc %04x, calculated %04x", expectedcrc, crc);
-        return false;
+        return FRAME_CRC_FAIL;
     }
 
-    return true;
+    return FRAME_OK;
+}
+
+// TODO we should have a higher-level thing that replies with a state 0x53 when we parse fail or resends last when
+// timing out
+Frame readFrame(unsigned long timeout) {
+    // Packets seem to be up to 300 bytes
+    const size_t BUFFER_SIZE{1024};
+    static uint8_t readBuffer[BUFFER_SIZE];
+
+    Frame result{};
+
+    uint8_t seq;
+    uint8_t port;
+    size_t len = 0;
+    size_t dataLen = 0;
+
+    IRDA.setTimeout(timeout);
+    len = IRDA.readBytesUntil(FRAME_EOF, readBuffer, BUFFER_SIZE);
+    if (len == 0) {
+        LOGW(TAG, "Timeout...");
+        result.error = FRAME_TIMEOUT;
+        return result;
+    }
+    if (len == BUFFER_SIZE) {
+        LOGE(TAG, "Filled buffer up all the way, probably dropping content");
+        result.error = FRAME_READ_ERROR;
+        return result;
+    }
+
+    result.error = parseFrame(readBuffer, len, dataLen, port, seq);
+    if (result.error == FRAME_OK) {
+        result.port = port;
+        result.seq = seq;
+        result.data = std::span(readBuffer, dataLen);
+    }
+    return result;
+}
+
+std::string extractString(Frame frame, size_t offset, size_t len) {
+    if (offset + len > frame.data.size()) {
+        LOGE(TAG, "Asked for string out of range of data");
+        return "";
+    }
+
+    auto charPtr = reinterpret_cast<const char *>(frame.data.data());
+    return std::string(charPtr + offset, len);
 }
 
 };  // namespace Frame
