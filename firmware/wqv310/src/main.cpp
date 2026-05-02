@@ -6,6 +6,7 @@
 #include "chunk.h"
 #include "config.h"
 #include "display.h"
+#include "firmware.h"
 #include "frame.h"
 #include "image.h"
 #include "irda_hal.h"
@@ -48,6 +49,8 @@ void IRAM_ATTR onManualModeToggleButton() {
 }
 
 void setup() {
+    Firmware::init();
+
     Serial.begin(BAUDRATE);
 
     // Doing this means it doesn't start until serial connected?
@@ -698,7 +701,4 @@ void loop() {
     } else {
         delay(1000);
     }
-
-    // LOGE(TAG, "Failure or no watch present, restarting from handshake");
-    // delay(1000);
 }

@@ -35,7 +35,7 @@ void setModel(int m) {
     }
 }
 
-static Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+static Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET, I2C_CLOCK, I2C_CLOCK);
 
 static const unsigned char image_frame0_bits[]{0xff, 0xfc, 0x80, 0x04, 0x80, 0x04, 0x80, 0x04, 0x80, 0x04,
                                                0x80, 0x04, 0x80, 0x04, 0x80, 0x04, 0x80, 0x04, 0x80, 0x04,

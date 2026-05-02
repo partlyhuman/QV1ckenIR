@@ -6,6 +6,7 @@
 
 #include "config.h"
 #include "display.h"
+#include "firmware.h"
 #include "frame.h"
 #include "image.h"
 #include "irda_hal.h"
@@ -39,6 +40,8 @@ void IRAM_ATTR onManualModeToggleButton() {
 }
 
 void setup() {
+    Firmware::init();
+
     Serial.begin(115200);
 
     // Doing this means it doesn't start until serial connected?

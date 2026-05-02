@@ -33,6 +33,9 @@
 #ifndef PIN_I2C_SCL
 #define PIN_I2C_SCL SCL
 #endif
+#ifndef I2C_CLOCK
+#define I2C_CLOCK 1000000UL
+#endif
 
 // RGB LED
 #ifndef PIN_WS2812

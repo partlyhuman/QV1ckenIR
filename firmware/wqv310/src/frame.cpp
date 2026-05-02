@@ -11,8 +11,6 @@
 #define DEBUG_WRITE
 #define DEBUG_READ
 
-using namespace std;
-
 namespace Frame {
 
 static const char *TAG = "Frame";
