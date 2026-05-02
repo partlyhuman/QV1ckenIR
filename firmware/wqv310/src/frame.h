@@ -22,7 +22,7 @@ const uint8_t FRAME_ESC = 0x7d;
 
 const unsigned long DEFAULT_READ_TIMEOUT = 1000;
 
-enum ReadError { FRAME_OK = 0, FRAME_TIMEOUT, FRAME_READ_ERROR, FRAME_CRC_FAIL, FRAME_MALFORMED };
+enum ReadError { FRAME_OK = 0, FRAME_TIMEOUT, FRAME_READ_ERROR, FRAME_CRC_FAIL, FRAME_MALFORMED, FRAME_APP_ERROR };
 
 struct Frame {
     ReadError error;

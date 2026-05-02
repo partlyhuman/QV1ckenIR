@@ -251,8 +251,9 @@ Frame::Frame readAckUntilDataFrame(unsigned long timeout = 2000) {
         if (frame.error) continue;
 
         if (frame.seq == 0x53) {
+            // TODO signal back up that we need to retry sending the payload
             LOGE(TAG, "Error status");
-            continue;
+            return Frame::Frame{.error = Frame::ReadError::FRAME_APP_ERROR};
         }
 
         if (frame.port == watchPort && frame.data.size() == 0 && (frame.seq & 0xf) == 1) {
@@ -699,25 +700,12 @@ void loop() {
         return;
     }
 
-    // Needed to clear after errors
     Display::showIdleScreen();
-    if (openSession()) {
-        for (int i = 0; i < 5; i++) {
-            ping();
-            delay(100);
-        }
-
-        if (swapRolesAndCloseSession() && openSessionInClientRole() && syncInClientRole()) {
-            // Eventually we'll get hung up on, use a low timeout
-            readAckUntilDataFrame(250);
-            Display::showMountedScreen();
-            delay(500);
-            MassStorage::begin();
-            return;
-        }
-
-        delay(10000);
-    } else {
-        delay(1000);
+    if (openSession() && swapRolesAndCloseSession() && openSessionInClientRole() && syncInClientRole()) {
+        // Eventually we'll get hung up on, use a low timeout
+        readAckUntilDataFrame(250);
+        Display::showMountedScreen();
+        MassStorage::begin();
+        return;
     }
 }
