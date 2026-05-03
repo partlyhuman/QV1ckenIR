@@ -11,7 +11,7 @@
 
 #if LOG_LEVEL >= 0
 #define LOGE(tag, format, ...) \
-  Serial.printf(ANSI_RED "E[%s] " format ANSI_RESET "\n", tag, ##__VA_ARGS__)
+    Serial.printf(ANSI_RED "E[%s %s:%d] " format ANSI_RESET "\n", tag, __FILE__, __LINE__, ##__VA_ARGS__)
 #else
 #define LOGE(tag, format, ...)
 #endif

@@ -31,9 +31,17 @@ struct Frame {
     std::span<const uint8_t> data;
 };
 
-// Returns unencoded data
 Frame readFrame(unsigned long timeout = DEFAULT_READ_TIMEOUT);
-void writeFrame(uint8_t addr, uint8_t control, span<const uint8_t> data = {}, size_t repeatBOF = 1);
+
+// NOTE when Serial is not connected, the ESP32 can be too fast and the watch misses the beginning,
+// so the default is to repeat the C0 many times (WQV Link does the same). May need further tuning.
+// Underclocking the ESP32 is also an option.
+void writeFrame(uint8_t addr, uint8_t control, span<const uint8_t> data = {}, size_t repeatBOF = 10);
+
 std::string extractString(Frame frame, size_t offset, size_t len);
+
+void log(Frame f);
+
+Frame errorFrame(ReadError err);
 
 }  // namespace Frame

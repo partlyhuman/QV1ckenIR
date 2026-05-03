@@ -18,6 +18,13 @@
 // Shortcut to fill in the arg with the current session
 // e.g. S(CMD_SET_TIME)
 #define S(arg) App::fill((arg), session)
+// Temp debugging aid
+#define LOGFAIL            \
+    {                      \
+        LOGE(TAG, "FAIL"); \
+        Frame::log(frame); \
+        return false;      \
+    }
 
 using namespace App;
 
@@ -53,7 +60,7 @@ void setup() {
     Display::init();
     Display::showBootScreen();
 
-    Serial.begin(BAUDRATE);
+    Serial.begin(115200);
 
     // Doing this means it doesn't start until serial connected?
     // while (!Serial);
@@ -89,19 +96,19 @@ void setup() {
  */
 static bool expect(uint8_t expectedport, uint8_t expectedseq, int expectedMinLength = -1) {
     if (frame.error != Frame::FRAME_OK) {
-        LOGD(TAG, "Frame not okay, status=%d", frame.error);
+        LOGW(TAG, "Frame not okay, status=%d", frame.error);
         return false;
     }
     if (frame.port != expectedport) {
-        LOGD(TAG, "Expected port=%02x got port=%02x\n", expectedport, frame.port);
+        LOGE(TAG, "Expected port=%02x got port=%02x\n", expectedport, frame.port);
         return false;
     }
     if (frame.seq != expectedseq) {
-        LOGD(TAG, "Expected seq=%02x got seq=%02x\n", expectedseq, frame.seq);
+        LOGE(TAG, "Expected seq=%02x got seq=%02x\n", expectedseq, frame.seq);
         return false;
     }
     if (expectedMinLength >= 0 && frame.data.size() < expectedMinLength) {
-        LOGD(TAG, "Expected at least %d bytes of data, got %d\n", expectedMinLength, frame.data.size());
+        LOGE(TAG, "Expected at least %d bytes of data, got %d\n", expectedMinLength, frame.data.size());
         return false;
     }
     return true;
@@ -109,38 +116,56 @@ static bool expect(uint8_t expectedport, uint8_t expectedseq, int expectedMinLen
 
 static bool expectAck() {
     if (frame.error != Frame::FRAME_OK) {
-        LOGD(TAG, "Frame not okay, status=%d", frame.error);
+        LOGE(TAG, "Frame not okay, status=%d", frame.error);
         return false;
     }
     if (frame.port != watchPort) {
-        LOGD(TAG, "Expected port=%02x got port=%02x\n", watchPort, frame.port);
+        LOGE(TAG, "Expected port=%02x got port=%02x\n", watchPort, frame.port);
         return false;
     }
     if ((frame.seq & 0xF) != 1) {
-        LOGD(TAG, "Expected seq=X1 (ACK) got seq=%02x\n", frame.seq);
+        LOGE(TAG, "Expected seq=X1 (ACK) got seq=%02x\n", frame.seq);
         return false;
     }
     if (frame.data.size() > 0) {
-        LOGD(TAG, "Expected empty data, got %d\n", frame.data.size());
+        LOGE(TAG, "Expected empty data, got %d\n", frame.data.size());
         return false;
     }
     return true;
 }
 
 template <size_t N>
-static bool expectStartsWith(const uint8_t (&lit)[N]) {
-    if (frame.error != Frame::FRAME_OK) return false;
-    return frame.data.size() >= N && std::equal(frame.data.begin(), frame.data.begin() + N, lit);
+static bool expectStartsWith(const uint8_t (&cmp)[N]) {
+    if (frame.error != Frame::FRAME_OK) LOGFAIL;
+    bool ret = frame.data.size() >= N && std::equal(frame.data.begin(), frame.data.begin() + N, cmp);
+    if (!ret) {
+        LOGE(TAG, "Expected frame to start with:");
+        for (auto b : cmp) Serial.printf("%02x ", b);
+        Serial.println();
+    }
+    return ret;
 }
 
 static bool expectStartsWith(std::span<const uint8_t> cmp) {
-    if (frame.error != Frame::FRAME_OK) return false;
-    return frame.data.size() >= cmp.size() && std::equal(cmp.begin(), cmp.end(), frame.data.begin());
+    if (frame.error != Frame::FRAME_OK) LOGFAIL;
+    bool ret = frame.data.size() >= cmp.size() && std::equal(cmp.begin(), cmp.end(), frame.data.begin());
+    if (!ret) {
+        LOGE(TAG, "Expected frame to start with:");
+        for (auto b : cmp) Serial.printf("%02x ", b);
+        Serial.println();
+    }
+    return ret;
 }
 
 static bool expectExactly(std::span<const uint8_t> cmp) {
-    if (frame.error != Frame::FRAME_OK) return false;
-    return frame.data.size() == cmp.size() && std::equal(cmp.begin(), cmp.end(), frame.data.begin());
+    if (frame.error != Frame::FRAME_OK) LOGFAIL;
+    bool ret = frame.data.size() == cmp.size() && std::equal(cmp.begin(), cmp.end(), frame.data.begin());
+    if (!ret) {
+        LOGE(TAG, "Expected frame to start with:");
+        for (auto b : cmp) Serial.printf("%02x ", b);
+        Serial.println();
+    }
+    return ret;
 }
 
 bool openSession() {
@@ -180,7 +205,7 @@ bool openSession() {
         model = 10;
         Display::setModel(model);
     } else {
-        LOGI(TAG, "Unrecognized watch");
+        LOGE(TAG, "Unrecognized watch");
         return false;
     }
     Display::showConnectingScreen("Negotiating session...");
@@ -192,7 +217,7 @@ bool openSession() {
     send = concat(IRDA_RAND_STR, START_SESSION);
     Frame::writeFrame(0xff, 0x93, send, 5);
     frame = Frame::readFrame();
-    if (frame.error) return false;
+    if (frame.error) LOGFAIL;
     LOGI(TAG, "Watch accepted SIP port %02x", watchPort);
 
     // Now we initialize the sequence state machine
@@ -202,13 +227,13 @@ bool openSession() {
     Frame::writeFrame(ourPort, seq(SEQ_DATA, false, false), S(SESSION_BEGIN));
     // Expect an 83 back
     frame = Frame::readFrame();
-    if (frame.error) return false;
+    if (frame.error) LOGFAIL;
 
     // 0x80030201 -- let's negotiate a session?
     Frame::writeFrame(ourPort, seq(SEQ_DATA, true, true), S(SESSION_NEGOTIATE));
     // Expect ACK
     frame = Frame::readFrame();
-    if (!expectAck()) return false;
+    if (!expectAck()) LOGFAIL;
 
     // Generate session ID! Needs to be >3 <=F
     session = random(0x4, 0xf);
@@ -217,7 +242,7 @@ bool openSession() {
     Frame::writeFrame(ourPort, seq(SEQ_DATA, false, true), S(SESSION_IDENT));
     // Expect  0x8403810001 (first byte = 0x80 | session)
     frame = Frame::readFrame();
-    if (frame.error || frame.data.size() < 2) return false;
+    if (frame.error || frame.data.size() < 2) LOGFAIL;
 
     LOGI(TAG, "Confirmed session id %02x by %02x", session, frame.data[1]);
 
@@ -225,7 +250,7 @@ bool openSession() {
     Frame::writeFrame(ourPort, seq(SEQ_ACK, true, false));
     // expect ack
     frame = Frame::readFrame();
-    if (frame.error) return false;
+    // if (frame.error) LOGFAIL
 
     // TODO we can't reverse roles after going into this state?
     // // Is 0x7d sometimes there and sometimes not??? // 0x7d is escape so this can't be right without a subsequent
@@ -236,27 +261,39 @@ bool openSession() {
 }
 
 Frame::Frame readAckUntilDataFrame(unsigned long timeout = 2000) {
-    for (int i = 0; i < ABORT_AFTER_RETRIES; i++) {
+    for (int i = 0; true; i++) {
+        if (i > ABORT_AFTER_RETRIES) {
+            return Frame::errorFrame(Frame::FRAME_TIMEOUT);
+        }
+
         frame = Frame::readFrame();
 
-        // Try again
-        if (frame.error) continue;
+        if (frame.error) {
+            // Ask for a resend
+            Frame::writeFrame(ourPort, seq());
+            continue;
+        }
 
         if (frame.seq == 0x53) {
             // TODO signal back up that we need to retry sending the payload
             LOGE(TAG, "Error status");
-            return Frame::Frame{.error = Frame::ReadError::FRAME_APP_ERROR};
+            return Frame::errorFrame(Frame::FRAME_APP_ERROR);
         }
 
-        if (frame.port == watchPort && frame.data.size() == 0 && (frame.seq & 0xf) == 1) {
-            // ACK, we'll reply ACK
-            Frame::writeFrame(ourPort, seq());
-        } else {
-            // Let the caller resume with the data still in place
-            break;
+        if (frame.port == watchPort) {
+            if (frame.data.size() == 0 && (frame.seq & 0xf) == 1) {
+                // ACK, we'll reply ACK
+                Frame::writeFrame(ourPort, seq());
+            } else if (frame.data.size() > 0) {
+                // Let the caller resume with the data still in place
+                return frame;
+            } else {
+                LOGE(TAG, "Unexpected frame in ack loop");
+                Frame::log(frame);
+                Frame::writeFrame(ourPort, seq());
+            }
         }
     }
-    return frame;
 }
 
 bool openSessionInClientRole() {
@@ -317,51 +354,87 @@ bool openSessionInClientRole() {
 
     readAckUntilDataFrame();
     // < 0x10 0x80010100
-    if (!expectStartsWith(CLIENT_SESSION_BEGIN)) return false;
+    if (!expectStartsWith(CLIENT_SESSION_BEGIN)) LOGFAIL;
     // > 0x30 0x81008100
     Frame::writeFrame(ourPort, seq(SEQ_DATA, true, false), CLIENT_REPLY_SESSION_BEGIN);
 
-    // Lots of IRDA garbage who cares
-    // TODO see if we can just ACK
-    // < 0x32 0x0001840B497244413A4972434F4D4D13497244413A54696E7954503A4C73617053656C
-    frame = Frame::readFrame();
-    // if (dataLen > 0 && readBuffer[0] == 0 && readBuffer[1] == 0x01) {
-    constexpr uint8_t IRDA_NEGOTIATE_0[]{0x01, 0x00, 0x84, 0x00, 0x00, 0x01, 0x00, 0x05, 0x01, 0x00, 0x00, 0x00, 0x09};
-    // > 0x52 0x01008400000100050100000009
-    Frame::writeFrame(ourPort, seq(SEQ_DATA, true, true), IRDA_NEGOTIATE_0);
+    // NOTE: the problem here turned out to be us replying so quickly the watch missed it when no Serial taking up time
+    // Fixed this with repeating the BOF here, but maybe we should default to a higher default BOF repeat?
+    int irdaFramesRecvd = 0;
+    for (int i = 0; true; i++) {
+        if (i > ABORT_AFTER_RETRIES) LOGFAIL;
+        frame = Frame::readFrame();
+        if (frame.error) LOGFAIL;
 
-    // more IRDA garbage
-    // TODO see if we can just ACK
-    // < 0x54 0x0001840B497244413A4972434F4D4D0A506172616D65746572737D
-    frame = Frame::readFrame();
-    // > 0x74 0x0100840000010005020006000106010101
-    constexpr uint8_t IRDA_NEGOTIATE_1[]{0x01, 0x00, 0x84, 0x00, 0x00, 0x01, 0x00, 0x05, 0x02,
-                                         0x00, 0x06, 0x00, 0x01, 0x06, 0x01, 0x01, 0x01};
-    Frame::writeFrame(ourPort, seq(SEQ_DATA, true, true), IRDA_NEGOTIATE_1);
+        if (frame.data.size() == 5 && frame.data[0] > 0x80 && frame.data[0] <= 0x8F) {
+            session = (frame.data[0] & 0xf);
+            Frame::writeFrame(ourPort, seq(SEQ_DATA, true, true), S(CLIENT_REPLY_SESSIONID_ASSIGN));
+            break;
+        } else if (expectStartsWith({0x00, 0x01, 0x84})) {
+            if (irdaFramesRecvd == 0) {
+                constexpr uint8_t IRDA_NEGOTIATE[]{0x01, 0x00, 0x84, 0x00, 0x00, 0x01, 0x00,
+                                                   0x05, 0x01, 0x00, 0x00, 0x00, 0x09};
+                Frame::writeFrame(ourPort, seq(SEQ_DATA, true, true), IRDA_NEGOTIATE);
+            } else if (irdaFramesRecvd == 1) {
+                constexpr uint8_t IRDA_NEGOTIATE[]{0x01, 0x00, 0x84, 0x00, 0x00, 0x01, 0x00, 0x05, 0x02,
+                                                   0x00, 0x06, 0x00, 0x01, 0x06, 0x01, 0x01, 0x01};
+                Frame::writeFrame(ourPort, seq(SEQ_DATA, true, true), IRDA_NEGOTIATE);
+            } else {
+                LOGE(TAG, "ran out of things to say");
+                return false;
+            }
+            irdaFramesRecvd++;
+        } else if ((frame.seq & 0xf) == 1) {
+            Frame::writeFrame(ourPort, seq(SEQ_ACK, false, false));
+        } else {
+            LOGFAIL;
+        }
+    }
+
+    // // Lots of IRDA garbage who cares
+    // // TODO see if we can just ACK
+    // // < 0x32 0x0001840B497244413A4972434F4D4D13497244413A54696E7954503A4C73617053656C
+    // frame = Frame::readFrame();
+    // // if (dataLen > 0 && readBuffer[0] == 0 && readBuffer[1] == 0x01) {
+    // constexpr uint8_t IRDA_NEGOTIATE_0[]{0x01, 0x00, 0x84, 0x00, 0x00, 0x01, 0x00, 0x05, 0x01, 0x00, 0x00, 0x00,
+    // 0x09};
+    // // > 0x52 0x01008400000100050100000009
+    // Frame::writeFrame(ourPort, seq(SEQ_DATA, true, true), IRDA_NEGOTIATE_0);
+
+    // // more IRDA garbage
+    // // TODO see if we can just ACK
+    // // < 0x54 0x0001840B497244413A4972434F4D4D0A506172616D65746572737D
+    // frame = Frame::readFrame();
+    // // > 0x74 0x0100840000010005020006000106010101
+    // constexpr uint8_t IRDA_NEGOTIATE_1[]{0x01, 0x00, 0x84, 0x00, 0x00, 0x01, 0x00, 0x05, 0x02,
+    //                                      0x00, 0x06, 0x00, 0x01, 0x06, 0x01, 0x01, 0x01};
+    // Frame::writeFrame(ourPort, seq(SEQ_DATA, true, true), IRDA_NEGOTIATE_1);
 
     // < 0x76 0x8903010001
-    frame = Frame::readFrame();
-    if (frame.data.size() == 5 && (frame.data[0] & 0xf0) == 0x80) {
-        session = frame.data[0] & 0xf;
-        LOGI(TAG, "Received session id %01x from watch", session);
-    } else {
-        LOGE(TAG, "Missed session id, should have been able to figure it out from %02x", frame.data[0]);
-        // TODO try an error status
-        return false;
-    }
-    // Display::showConnectingScreen("Waiting for commands from watch");
-    // > 0x96 0x830981000E
-    Frame::writeFrame(ourPort, seq(SEQ_DATA, true, true), S(CLIENT_REPLY_SESSIONID_ASSIGN));
+    // LOGE(TAG, "1");
+    // frame = readAckUntilDataFrame();
+    // LOGE(TAG, "Expecting Frame: 0x8?03010001, got:");
+    // Frame::log(frame);
+    // // Don't allow 0 as session
+    // if (!frame.error && frame.data.size() > 0 && frame.data[0] > 0x80 && frame.data[0] <= 0x8f) {
+    //     LOGE(TAG, "2");
+    //     session = (frame.data[0] & 0xf);
+    //     LOGI(TAG, "Received session id %01x from watch", session);
+    // } else {
+    //     LOGE(TAG, "Missed session id");
+    //     return false;
+    // }
+    //     LOGE(TAG, "3");
 
     // < 0x98 0x09030003000104
     frame = Frame::readFrame();
-    if (!expectStartsWith({session, 0x03, 0x00, 0x03})) return false;
+    if (!expectStartsWith({session, 0x03, 0x00, 0x03})) LOGFAIL;
     // > 0xB1
     Frame::writeFrame(ourPort, seq(SEQ_ACK, true, false));
 
     // < 0x9A 0x0903000C10040000258011010320010C
     frame = Frame::readFrame();
-    if (!expectStartsWith({session, 0x03, 0x00, 0x0C})) return false;
+    if (!expectStartsWith({session, 0x03, 0x00, 0x0C})) LOGFAIL;
     // > 0xD1
     Frame::writeFrame(ourPort, seq(SEQ_ACK, true, false));
 
@@ -434,7 +507,7 @@ void sendTime(Timestamp time) {
     sendBuffer.insert(sendBuffer.end(), cmd.begin(), cmd.end());
     std::memcpy(sendBuffer.data() + sendBuffer.size(), &time, sizeof(Timestamp));
 
-    Frame::writeFrame(ourPort, seq(SEQ_DATA, true, true), sendBuffer, 5);
+    Frame::writeFrame(ourPort, seq(SEQ_DATA, true, true), sendBuffer);
     frame = Frame::readFrame();
 }
 
@@ -472,7 +545,7 @@ bool syncInClientRole() {
     Frame::writeFrame(ourPort, seq(SEQ_ACK, true, false));
 
     frame = Frame::readFrame();
-    if (!expectAck()) return false;
+    if (!expectAck()) LOGFAIL;
     uint8_t FW_IDENT[]{0x03, session, 0x00, 0x00, 0x00, 0x11, 0x01, 0x30, 0x10, 0x04, 0x08, 0x00, 0x74, 0x03,
                        0x00, 0x00,    0x00, 0x00, 0x08, 0x00, 0x74, 0x03, 0x10, 0x00, 0x00, 0x00, 0x11, 0x66,
                        0x72, 0x3A,    0x31, 0x0D, 0x0A, 0x69, 0x64, 0x3A, 0x4C, 0x49, 0x4E, 0x4B, 0x20, 0x51,
@@ -481,7 +554,7 @@ bool syncInClientRole() {
 
     // < 0xBE 0x090301
     frame = readAckUntilDataFrame();
-    if (!expectExactly(S(CLIENT_APP_ITER_NEXT))) return false;
+    if (!expectExactly(S(CLIENT_APP_ITER_NEXT))) LOGFAIL;
     LOGD(TAG, "<< Yield next object from watch");
     Frame::writeFrame(ourPort, seq(SEQ_ACK, true, false));
 
@@ -499,7 +572,7 @@ bool syncInClientRole() {
 
     // < 0xBE 0x090301
     frame = readAckUntilDataFrame();
-    if (!expectStartsWith({session, 0x03, 0x01})) return false;
+    if (!expectStartsWith({session, 0x03, 0x01})) LOGFAIL;
     LOGD(TAG, "i++ from watch");
     Frame::writeFrame(ourPort, seq(SEQ_ACK, true, false));
 
@@ -517,7 +590,7 @@ bool syncInClientRole() {
 
     // < 0xBE 0x090301
     frame = readAckUntilDataFrame();
-    if (!expectStartsWith({session, 0x03, 0x01})) return false;
+    if (!expectStartsWith({session, 0x03, 0x01})) LOGFAIL;
     LOGD(TAG, "i++ from watch");
     Frame::writeFrame(ourPort, seq(SEQ_ACK, true, false));
 
@@ -535,7 +608,7 @@ bool syncInClientRole() {
 
     // < 0xBE 0x090301
     frame = readAckUntilDataFrame();
-    if (!expectExactly(S(CLIENT_APP_ITER_NEXT))) return false;
+    if (!expectExactly(S(CLIENT_APP_ITER_NEXT))) LOGFAIL;
     LOGD(TAG, "i++ from watch");
     Frame::writeFrame(ourPort, seq(SEQ_ACK, true, false));
 
@@ -652,7 +725,7 @@ bool syncInClientRole() {
 
         // RPL0
         frame = Frame::readFrame();
-        if (!expectAck()) return false;
+        if (!expectAck()) LOGFAIL;
         // Use the RPL0 we created earlier
         Frame::writeFrame(ourPort, seq(SEQ_DATA, false, true), rpl0);
 

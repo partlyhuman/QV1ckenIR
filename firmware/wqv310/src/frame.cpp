@@ -14,6 +14,7 @@
 namespace Frame {
 
 static const char *TAG = "Frame";
+static constexpr std::span<const uint8_t> EMPTY{};
 
 static inline void writeEscaped(uint8_t b) {
     if (b == FRAME_BOF || b == FRAME_EOF || b == FRAME_ESC) {
@@ -148,6 +149,7 @@ Frame readFrame(unsigned long timeout) {
     static uint8_t readBuffer[BUFFER_SIZE];
 
     Frame result{};
+    result.data = EMPTY;
 
     uint8_t seq;
     uint8_t port;
@@ -184,6 +186,20 @@ std::string extractString(Frame frame, size_t offset, size_t len) {
 
     auto charPtr = reinterpret_cast<const char *>(frame.data.data());
     return std::string(charPtr + offset, len);
+}
+
+void log(Frame f) {
+    Serial.printf("{ error=%d port=%02x seq=%02x", f.error, f.port, f.seq);
+    Serial.flush();  // in case it crashes here??
+    if (!f.data.empty()) {
+        Serial.printf(" data=");
+        for (const uint8_t b : f.data) Serial.printf("%02x ");
+    }
+    Serial.println(" }");
+}
+
+Frame errorFrame(ReadError err) {
+    return {.error = err, .port = 0, .seq = 0, .data = EMPTY};
 }
 
 };  // namespace Frame
