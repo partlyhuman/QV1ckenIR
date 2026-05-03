@@ -8,7 +8,7 @@ void setModel(int m);
 void dim(bool dim);
 void showBootScreen();
 void showIdleScreen();
-void showConnectingScreen(int offset = 0);
+void showConnectingScreen(const char* text);
 void showProgressScreen(float progress, size_t imageNumber);
 void showMountedScreen();
 

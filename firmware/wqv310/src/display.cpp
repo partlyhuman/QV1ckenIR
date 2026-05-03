@@ -259,7 +259,7 @@ void showIdleScreen() {
     if (scroll) startScroll();
 }
 
-void showConnectingScreen(int offset) {
+void showConnectingScreen(const char* text) {
     screen = 1;
     scroll = false;
     statusString = "CONNECTING";
@@ -267,9 +267,22 @@ void showConnectingScreen(int offset) {
     stopScroll();
     display.clearDisplay();
 
-    display.drawBitmap(48 + offset, 34, image_arrow_right_bits, 7, 5, 1);
+    display.setTextColor(1);
+    display.setFont(&Nokia_Cellphone_FC_8);
 
-    display.drawBitmap(69 - offset, 34, image_arrow_left_bits, 7, 5, 1);
+    int16_t x, y;
+    uint16_t w, h;
+    display.setTextWrap(true);
+    display.getTextBounds(text, 0, 30, &x, &y, &w, &h);
+    if (w < SCREEN_WIDTH - 2 && h < 14) {
+        // Center
+        x = (SCREEN_WIDTH - w) / 2;
+    } else {
+        // Left align
+        x = 2;
+    }
+    display.setCursor(x, y);
+    display.print(text);
 
     drawBar();
     display.display();

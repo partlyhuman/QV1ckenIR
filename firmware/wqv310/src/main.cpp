@@ -165,8 +165,6 @@ bool openSession() {
     // Did we get any response from that?
     if (frame.error) return false;
 
-    Display::showConnectingScreen(0);
-
     // What watch is connecting?
     // 01193666 BED60300 00010500 84040043 4153494F 20574943 20323431 322F4952
     //                                     C A S I  O   W I  C 2 4 1  2 / I R
@@ -174,7 +172,6 @@ bool openSession() {
     //                                     C A S I  O   W I  C 2 4 1  1 / I R
 
     auto watchIdString = Frame::extractString(frame, 15, 17);
-    LOGI(TAG, "Connected to watch '%s'", watchIdString.c_str());
 
     if (watchIdString == "CASIO WIC 2411/IR") {
         model = 3;
@@ -186,8 +183,7 @@ bool openSession() {
         LOGI(TAG, "Unrecognized watch");
         return false;
     }
-
-    Display::showConnectingScreen(0);
+    Display::showConnectingScreen("Negotiating session...");
 
     std::array<uint8_t, 27> START_SESSION{0x19, 0x36, 0x66, 0xBE, watchPort, 0x01, 0x01, 0x02, 0x82,
                                           0x01, 0x01, 0x83, 0x01, 0x3F,      0x84, 0x01, 0x0F, 0x85,
@@ -198,8 +194,6 @@ bool openSession() {
     frame = Frame::readFrame();
     if (frame.error) return false;
     LOGI(TAG, "Watch accepted SIP port %02x", watchPort);
-
-    Display::showConnectingScreen(1);
 
     // Now we initialize the sequence state machine
     seq_upper = 1;
@@ -232,8 +226,6 @@ bool openSession() {
     // expect ack
     frame = Frame::readFrame();
     if (frame.error) return false;
-
-    Display::showConnectingScreen(2);
 
     // TODO we can't reverse roles after going into this state?
     // // Is 0x7d sometimes there and sometimes not??? // 0x7d is escape so this can't be right without a subsequent
@@ -273,7 +265,7 @@ bool openSessionInClientRole() {
     seq_lower = 0;
     seq_upper = 1;
 
-    Display::showConnectingScreen(3);
+    Display::showConnectingScreen("Switching roles");
 
     // < 0x3F 0x01193666BEFFFFFFFF010000...
     // give first one a long time to arrive
@@ -281,15 +273,11 @@ bool openSessionInClientRole() {
     if (frame.error == Frame::FRAME_TIMEOUT) {
         LOGE(TAG, "Was waiting for watch to take over connection, but timed out waiting.");
         return false;
-    } else if (frame.error) {
-        return false;
     }
-
-    Display::showConnectingScreen(4);
 
     // > 0xBF 0x01(0E030000)193666BE01050084250057494E444F5753585000 "WINDOWS XP"
     // We replace that with QV1-BLINK
-    uint8_t IRDA_HI[]{0x01, 0xff, 0xff, 0xff, 0xff, 0x19, 0x36, 0x66, 0xbe, 0x01, 0x05, 0x00, 0x84,
+    uint8_t IRDA_HI[]{0x01, 0,    0,    0,    0,    0x19, 0x36, 0x66, 0xbe, 0x01, 0x05, 0x00, 0x84,
                       0x25, 0x00, 0x51, 0x56, 0x31, 0x2d, 0x42, 0x4c, 0x49, 0x4e, 0x4b, 0x00};
     for (int i = 1; i <= 4; i++) {
         IRDA_HI[i] = esp_random() & ~0b11000001;
@@ -305,7 +293,7 @@ bool openSessionInClientRole() {
         frame = Frame::readFrame();
 
         // < 0x3F 0x01193666BEFFFFFFFF01FF008C0400434153494F2057494320323431312F4952 ("casio wic...")
-    } while (!expectStartsWith(IRDA_IDENT));
+    } while (!frame.error && !expectStartsWith(IRDA_IDENT));
 
     auto watchIdentString = Frame::extractString(frame, 15, 17);
     LOGI(TAG, "IRDA stack host ident '%s'", watchIdentString.c_str());
@@ -316,7 +304,10 @@ bool openSessionInClientRole() {
         ourPort = frame.data[8];
         watchPort = ourPort + 1;
         LOGI(TAG, "Accepting ports assigned by watch: device=%02x watch=%02x", ourPort, watchPort);
+    } else {
+        return false;
     }
+    // Display::showConnectingScreen("Watch establishing session");
 
     // > 0x73 0x0E030000193666BE01010282010183013F84010F85018086028003080104
     constexpr uint8_t CONNECT_STR[]{0x0e, 0x03, 0x00, 0x00, 0x19, 0x36, 0x66, 0xbe, 0x01, 0x01,
@@ -358,6 +349,7 @@ bool openSessionInClientRole() {
         // TODO try an error status
         return false;
     }
+    // Display::showConnectingScreen("Waiting for commands from watch");
     // > 0x96 0x830981000E
     Frame::writeFrame(ourPort, seq(SEQ_DATA, true, true), S(CLIENT_REPLY_SESSIONID_ASSIGN));
 
@@ -373,8 +365,6 @@ bool openSessionInClientRole() {
     // > 0xD1
     Frame::writeFrame(ourPort, seq(SEQ_ACK, true, false));
 
-    Display::showConnectingScreen(5);
-
     LOGD(TAG, "Done opening session in client role");
     return true;
 }
@@ -386,7 +376,8 @@ bool ping() {
 }
 
 bool closeSession() {
-    LOGI(TAG, "Closing session...");
+    // Display::showConnectingScreen("Closing session as host");
+
     // 0x83SS0201
     Frame::writeFrame(ourPort, seq(SEQ_DATA, false, true), S(SESSION_END));
     Frame::readFrame();
@@ -402,7 +393,7 @@ bool closeSession() {
 }
 
 bool swapRolesAndCloseSession() {
-    LOGI(TAG, "Ending session and swapping roles");
+    // Display::showConnectingScreen("Requesting watch takes over");
 
     // > 0x0308000001
     if (model == 3) {
@@ -451,7 +442,9 @@ bool syncInClientRole() {
     // NOTE it's important to only do work when the watch is not sending (waiting for our reply)
     frame = Frame::readFrame();
 
-    LOGI(TAG, "Formatting FatFS...");
+    Display::showConnectingScreen("Watch establishing sync");
+
+    LOGI(TAG, "Formatting FatFS");
     FFat.end();
     FFat.format();
     FFat.begin();
@@ -637,7 +630,7 @@ bool syncInClientRole() {
                 // Periodically send "Continue", otherwise normal ACK
                 // arbitrary loop point
                 if (frame.seq % 0xf > 8) {
-                    LOGV(TAG, ">> continue...");
+                    LOGV(TAG, ">> continue");
                     uint8_t CONTINUE[]{0x03, session, 0x06};
                     Frame::writeFrame(ourPort, seq(SEQ_DATA, true, true), CONTINUE);
                 } else {
