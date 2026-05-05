@@ -1,0 +1,26 @@
+{
+  "name": "parcel-vanilla-starter",
+  "private": true,
+  "version": "0.0.0",
+  "source": "src/index.html",
+  "scripts": {
+    "start": "parcel",
+    "build": "parcel build --no-cache --no-source-maps --public-url ./ src/index.html"
+  },
+  "dependencies": {
+    "esptool-js": "^0.6.0"
+  },
+  "devDependencies": {
+    "@parcel/optimizer-data-url": "^2.16.4",
+    "@parcel/transformer-inline-string": "^2.16.4",
+    "parcel": "^2.14.0"
+  },
+  "targets": {
+    "modern": {
+      "context": "browser",
+      "engines": {
+        "browsers": "last 1 Chrome version"
+      }
+    }
+  }
+}
