@@ -2,6 +2,7 @@
 #include <Adafruit_SSD1306.h>
 
 #include "Nokia_Cellphone_FC_8.h"
+#include "Org_01.h"
 #include "_1980v23P04_16.h"
 #include "config.h"
 #include "display.h"
@@ -157,6 +158,11 @@ void showBootScreen() {
 
     // // 10
     // display.drawBitmap(118, 56, image__10_bits, 9, 7, 1);
+
+    // version
+    display.setFont(&Org_01);
+    display.setCursor(0, 4);
+    display.printf("V%s", VERSION_STRING);
 
     display.display();
 }

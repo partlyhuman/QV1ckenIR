@@ -1,5 +1,7 @@
 #pragma once
 
+#define VERSION_STRING "2.0"
+
 // Which UART to use IRDA on
 #ifndef IRDA_UART_NUM
 #define IRDA_UART_NUM 1
