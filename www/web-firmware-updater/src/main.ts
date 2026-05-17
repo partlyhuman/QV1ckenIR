@@ -1,5 +1,10 @@
-import FIRMWARE_DATA_URL from "data-url:./bin/release_2.1b.bin";
 import {ESPLoader, IEspLoaderTerminal, Transport} from "esptool-js";
+
+// @ts-ignore
+import FIRMWARE_DATA_URL from "url:./bin/release_2.1b.bin";
+const CURRENT_VERSION_TEXT = "2.1b";
+
+document.querySelector("#current-version-text").innerHTML = CURRENT_VERSION_TEXT;
 
 const $progress = document.querySelector("progress");
 const $button = document.querySelector("button");
