@@ -1,6 +1,5 @@
 #pragma once
-
-#include <Arduino.h>
+#include <cstdint>
 
 struct __attribute__((packed)) Timestamp {
     uint8_t year2k;

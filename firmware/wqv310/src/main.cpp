@@ -12,7 +12,7 @@
 #include "irda_hal.h"
 #include "log.h"
 #include "msc.h"
-#include "types.h"
+#include "wqv_types.h"
 
 // Temp debugging aid
 #define LOGFAIL            \
@@ -680,7 +680,7 @@ bool syncInClientRole() {
         LOGI(TAG, "File '%s' done!", fileName.c_str());
 
         Display::showProgressScreen(1, fileCount);
-        Image::postProcess(fileName, fileBuffer);
+        Image::postProcess(fileName, fileBuffer, model);
         fileBuffer.clear();
 
         // RPL0

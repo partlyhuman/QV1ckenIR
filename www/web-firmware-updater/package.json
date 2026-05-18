@@ -5,7 +5,7 @@
   "source": "src/index.html",
   "scripts": {
     "start": "parcel",
-    "build": "parcel build --no-cache --no-source-maps --public-url ./ src/index.html"
+    "build": "rm -rf dist; parcel build --no-cache --no-source-maps --public-url ./ src/index.html"
   },
   "dependencies": {
     "esptool-js": "^0.6.0"

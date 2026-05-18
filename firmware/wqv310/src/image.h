@@ -2,12 +2,12 @@
 
 #include <Arduino.h>
 
-#include <span>
 #include <string>
+#include <vector>
 
 namespace Image {
 
 void init();
-void postProcess(std::string fileName, std::span<const uint8_t> data);
+void postProcess(std::string fileName, std::vector<uint8_t> data, int wqvModel);
 
 }  // namespace Image

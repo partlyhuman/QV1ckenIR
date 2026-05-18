@@ -6,7 +6,7 @@ PARTFILE=../wqvblink_partition_table.csv
 PIO_ENV=esp32_s3_supermini
 APP0_BIN=../wqv12/.pio/build/$PIO_ENV/firmware.bin
 APP1_BIN=../wqv310/.pio/build/$PIO_ENV/firmware.bin
-COMMON=../wqv12/.pio/build/$PIO_ENV
+COMMON=../wqv310/.pio/build/$PIO_ENV
 BOOTLOADER_BIN=$COMMON/bootloader.bin
 PARTITIONS_BIN=$COMMON/partitions.bin
 

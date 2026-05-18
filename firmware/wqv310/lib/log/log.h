@@ -1,5 +1,12 @@
 #pragma once
 
+#ifdef ARDUINO
+#include <Arduino.h>
+#define LOGFUNC Serial.printf
+#else
+#define LOGFUNC printf
+#endif
+
 // 0 - Errors, 1 - Warnings, 2 - Info, 3 - Debug, 4 - Verbose
 #ifndef LOG_LEVEL
 #define LOG_LEVEL 2
@@ -11,35 +18,31 @@
 
 #if LOG_LEVEL >= 0
 #define LOGE(tag, format, ...) \
-    Serial.printf(ANSI_RED "E[%s %s:%d] " format ANSI_RESET "\n", tag, __FILE__, __LINE__, ##__VA_ARGS__)
+    LOGFUNC(ANSI_RED "E[%s %s:%d] " format ANSI_RESET "\n", tag, __FILE__, __LINE__, ##__VA_ARGS__)
 #else
 #define LOGE(tag, format, ...)
 #endif
 
 #if LOG_LEVEL >= 1
-#define LOGW(tag, format, ...) \
-  Serial.printf(ANSI_YELLOW "W[%s] " format ANSI_RESET "\n", tag, ##__VA_ARGS__)
+#define LOGW(tag, format, ...) LOGFUNC(ANSI_YELLOW "W[%s] " format ANSI_RESET "\n", tag, ##__VA_ARGS__)
 #else
 #define LOGW(tag, format, ...)
 #endif
 
 #if LOG_LEVEL >= 2
-#define LOGI(tag, format, ...) \
-  Serial.printf("I[%s] " format "\n", tag, ##__VA_ARGS__)
+#define LOGI(tag, format, ...) LOGFUNC("I[%s] " format "\n", tag, ##__VA_ARGS__)
 #else
 #define LOGI(tag, format, ...)
 #endif
 
 #if LOG_LEVEL >= 3
-#define LOGD(tag, format, ...) \
-  Serial.printf("D[%s] " format "\n", tag, ##__VA_ARGS__)
+#define LOGD(tag, format, ...) LOGFUNC("D[%s] " format "\n", tag, ##__VA_ARGS__)
 #else
 #define LOGD(tag, format, ...)
 #endif
 
 #if LOG_LEVEL >= 4
-#define LOGV(tag, format, ...) \
-  Serial.printf("V[%s] " format "\n", tag, ##__VA_ARGS__)
+#define LOGV(tag, format, ...) LOGFUNC("V[%s] " format "\n", tag, ##__VA_ARGS__)
 #else
 #define LOGV(tag, format, ...)
 #endif
