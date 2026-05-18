@@ -1,8 +1,8 @@
 import {ESPLoader, IEspLoaderTerminal, Transport} from "esptool-js";
 
 // @ts-ignore
-import FIRMWARE_DATA_URL from "url:./bin/release_2.1b.bin";
-const CURRENT_VERSION_TEXT = "2.1b";
+import FIRMWARE_DATA_URL from "url:./bin/release_2.1.bin";
+const CURRENT_VERSION_TEXT = "2.1";
 
 document.querySelector("#current-version-text").innerHTML = CURRENT_VERSION_TEXT;
 
